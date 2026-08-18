@@ -125,7 +125,7 @@
       background: var(--panel);
       box-shadow: var(--shadow);
       backdrop-filter: blur(16px);
-      overflow: hidden;
+      overflow: clip;
     }
 
     .editor-card {
@@ -702,17 +702,25 @@
     window.ggbOnInit = finishGeoGebraInit;
 
     function loadGeoGebra() {
+      const container = document.getElementById('ggb-element');
       const script = document.createElement('script');
       script.src = 'https://www.geogebra.org/apps/deployggb.js';
       script.async = true;
       script.onload = () => {
-        const container = document.getElementById('ggb-element');
-        const rect = container.getBoundingClientRect();
+        const measure = () => {
+          const rect = container.getBoundingClientRect();
+          const parent = container.parentElement;
+          const padX = parent ? (parseFloat(getComputedStyle(parent).paddingLeft) + parseFloat(getComputedStyle(parent).paddingRight)) : 32;
+          const w = Math.max(320, Math.floor(rect.width));
+          const h = Math.max(420, Math.floor(Math.min((rect.width - padX) * 0.7, window.innerHeight * 0.65)));
+          return { width: w, height: h };
+        };
+        const { width, height } = measure();
         const params = {
           id: 'ggbApplet',
           appName: 'geometry',
-          width: Math.max(320, Math.floor(rect.width)),
-          height: Math.max(420, Math.floor(Math.min(rect.width * 0.7, window.innerHeight * 0.65))),
+          width,
+          height,
           showToolBar: true,
           showAlgebraInput: true,
           showMenuBar: false,
@@ -724,17 +732,22 @@
         ggbAppletInstance = new GGBApplet(params, true);
         ggbAppletInstance.inject('ggb-element');
 
-        window.addEventListener('resize', () => {
+        const resize = () => {
           if (!window.ggbApplet) return;
-          const r = container.getBoundingClientRect();
-          window.ggbApplet.setSize(Math.max(320, Math.floor(r.width)), Math.max(420, Math.floor(Math.min(r.width * 0.7, window.innerHeight * 0.65))));
-        });
+          const { width: w, height: h } = measure();
+          window.ggbApplet.setSize(w, h);
+        };
+        window.addEventListener('resize', resize);
+        if (typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver(resize);
+          ro.observe(container);
+        }
 
         // Some GeoGebra builds do not call appletOnLoad reliably in embedded browsers.
         initPollTimer = setInterval(() => finishGeoGebraInit(), 250);
       };
       script.onerror = () => {
-        loadingEl.innerHTML = 'GeoGebra 脚本加载失败<small>请检查网络，或允许访问 https://www.geogebra.org</small>';
+        loadingEl.innerHTML = 'GeoGebra 脚本加载失败<small>请检查网络，或稍后重试 https://www.geogebra.org</small>';
         setStatus('GeoGebra 加载失败', '#c5603b');
       };
       document.head.appendChild(script);
