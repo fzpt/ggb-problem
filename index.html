@@ -320,6 +320,47 @@
       flex-direction: column;
       gap: 10px;
     }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 4px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.52);
+      border: 1px solid var(--line);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font: 700 12px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      cursor: pointer;
+      transition: background 160ms ease, color 160ms ease;
+    }
+    .tab-btn.active {
+      background: #fff;
+      color: var(--moss);
+      box-shadow: 0 1px 3px rgba(23,34,31,0.08);
+    }
+    .tab-btn:hover:not(.active) {
+      background: rgba(255,255,255,0.6);
+      color: var(--ink);
+    }
+    .tab-panels {
+      display: flex;
+      flex-direction: column;
+    }
+    .tab-panel {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .tab-panel.active {
+      display: flex;
+    }
+
     .drop-zone {
       position: relative;
       display: flex;
@@ -449,6 +490,21 @@
       .actions button, select { width: 100%; }
       #ggb-element { min-height: 390px; }
     }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
   </style>
 </head>
 <body>
@@ -465,52 +521,55 @@
     </section>
     <section class="workspace">
       <div class="left-column">
-        <article class="card upload-card">
+<article class="card upload-card">
           <div class="card-head">
             <div class="label-row">
-              <span>From Photo</span>
-              <span id="upload-status">Mock 模式</span>
+              <span>题目</span>
+              <span id="upload-status">baidu / kimi</span>
             </div>
-            <div class="shortcuts" aria-label="图片操作">
-              <button type="button" id="paste-image">粘贴截图</button>
-              <button type="button" id="clear-image">清除</button>
+            <div class="tabs" role="tablist">
+              <button class="tab-btn active" type="button" data-tab="image-tab" role="tab" aria-selected="true">原图</button>
+              <button class="tab-btn" type="button" data-tab="text-tab" role="tab" aria-selected="false">题目文字</button>
             </div>
           </div>
 
-          <div class="drop-zone" id="drop-zone">
-            <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp" />
-            <span id="drop-prompt">拖拽或点击上传几何题照片</span>
-            <img id="image-thumb" class="thumb" alt="照片预览" style="display: none;" />
-          </div>
+          <div class="tab-panels">
+            <div id="image-tab" class="tab-panel active">
+              <div class="drop-zone" id="drop-zone">
+                <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp" />
+                <span id="drop-prompt">拖拽或点击上传 / 粘贴图片</span>
+                <img id="image-thumb" class="thumb" alt="照片预览" style="display: none;" />
+              </div>
+              <div class="provider-row">
+                <label for="ocr-provider">文字识别</label>
+                <select id="ocr-provider">
+                  <option value="mock">Mock（本地示例）</option>
+                  <option value="baidu" selected>百度 OCR（需要 API key）</option>
+                </select>
+              </div>
+              <div class="upload-foot">
+                <button class="primary" id="recognize" type="button">识别题目</button>
+                <button type="button" id="paste-image">粘贴截图</button>
+                <button type="button" id="clear-image">清除</button>
+              </div>
+            </div>
 
-          <div class="provider-row">
-            <label for="ocr-provider">文字识别</label>
-            <select id="ocr-provider">
-              <option value="mock">Mock（本地示例）</option>
-              <option value="baidu" selected>百度 OCR（需要 API key）</option>
-            </select>
-          </div>
-
-          <div class="upload-foot">
-            <button class="primary" id="recognize" type="button">识别题目</button>
-          </div>
-
-          <div class="extracted-panel" id="recognized-panel" style="display: none;">
-            <div class="extracted-label">识别出的题目（可编辑）</div>
-            <textarea id="recognized-text" class="recognized-text" spellcheck="false" aria-label="识别出的题目文字"></textarea>
-          </div>
-
-          <div class="provider-row">
-            <label for="llm-provider">指令生成</label>
-            <select id="llm-provider">
-              <option value="mock">Mock（本地示例）</option>
-              <option value="kimi" selected>Kimi（需要 API key）</option>
-            </select>
-          </div>
-
-          <div class="upload-foot">
-            <button class="primary" id="generate" type="button" disabled>生成 GeoGebra 指令</button>
-              <button id="cancel-generate" type="button" style="display: none;">终止生成</button>
+            <div id="text-tab" class="tab-panel">
+              <div class="extracted-panel">
+                <textarea id="recognized-text" class="recognized-text" spellcheck="false" aria-label="识别出的题目文字" placeholder="识别出的题目会显示在这里，也可以直接输入或修改..."></textarea>
+              </div>
+              <div class="provider-row">
+                <label for="llm-provider">指令生成</label>
+                <select id="llm-provider">
+                  <option value="mock">Mock（本地示例）</option>
+                  <option value="kimi" selected>Kimi（需要 API key）</option>
+                </select>
+              </div>
+              <div class="upload-foot">
+                <button class="primary" id="generate" type="button" disabled><span class="spinner" id="generate-spinner" style="display: none;"></span><span id="generate-label">生成 GeoGebra 指令</span></button>
+                <button id="cancel-generate" type="button" style="display: none;">终止生成</button>
+              </div>
+            </div>
           </div>
 
           <div class="extracted-panel" id="extracted-panel" style="display: none;">
@@ -647,11 +706,13 @@
       script.src = 'https://www.geogebra.org/apps/deployggb.js';
       script.async = true;
       script.onload = () => {
+        const container = document.getElementById('ggb-element');
+        const rect = container.getBoundingClientRect();
         const params = {
           id: 'ggbApplet',
           appName: 'geometry',
-          width: 900,
-          height: 620,
+          width: Math.max(320, Math.floor(rect.width)),
+          height: Math.max(420, Math.floor(Math.min(rect.width * 0.7, window.innerHeight * 0.65))),
           showToolBar: true,
           showAlgebraInput: true,
           showMenuBar: false,
@@ -662,6 +723,12 @@
         };
         ggbAppletInstance = new GGBApplet(params, true);
         ggbAppletInstance.inject('ggb-element');
+
+        window.addEventListener('resize', () => {
+          if (!window.ggbApplet) return;
+          const r = container.getBoundingClientRect();
+          window.ggbApplet.setSize(Math.max(320, Math.floor(r.width)), Math.max(420, Math.floor(Math.min(r.width * 0.7, window.innerHeight * 0.65))));
+        });
 
         // Some GeoGebra builds do not call appletOnLoad reliably in embedded browsers.
         initPollTimer = setInterval(() => finishGeoGebraInit(), 250);
@@ -705,6 +772,27 @@
       }
     });
     commandsEl.addEventListener('input', updateLineCount);
+
+    recognizedText.addEventListener('input', () => {
+      generateBtn.disabled = !recognizedText.value.trim();
+    });
+
+    // ---------- Tab switching ----------
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabPanels = document.querySelectorAll('.tab-panel');
+    function switchTab(tabId) {
+      tabBtns.forEach(btn => {
+        const isActive = btn.dataset.tab === tabId;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      tabPanels.forEach(panel => {
+        panel.classList.toggle('active', panel.id === tabId);
+      });
+    }
+    tabBtns.forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
 
     // ---------- Photo upload & two-step extraction ----------
     async function fetchWithTimeout(url, options, timeoutMs = 300000, abortController = null) {
@@ -771,6 +859,7 @@
       assumptionsEl.style.display = 'none';
       assumptionsEl.textContent = '';
       generateBtn.disabled = true;
+      switchTab('image-tab');
       updateStatus();
     }
 
@@ -879,6 +968,7 @@
         recognizedText.value = result.text || '（未识别到文字）';
         recognizedPanel.style.display = 'block';
         generateBtn.disabled = false;
+        switchTab('text-tab');
         logEl.textContent = `OCR 完成（${result.provider}）。请检查文字，然后点击「生成 GeoGebra 指令」。`;
       } catch (error) {
         logEl.textContent = '识别出错：' + error.message;
@@ -903,7 +993,10 @@
         // ignore
       }
       generateBtn.disabled = false;
-      generateBtn.textContent = '生成 GeoGebra 指令';
+      const cancelLabel = document.getElementById('generate-label');
+      if (cancelLabel) cancelLabel.textContent = '生成 GeoGebra 指令';
+      const cancelSpinner = document.getElementById('generate-spinner');
+      if (cancelSpinner) cancelSpinner.style.display = 'none';
       cancelGenerateBtn.style.display = 'none';
       logEl.textContent = '已终止生成。';
     });
@@ -916,7 +1009,8 @@
       }
       generateAbortController = new AbortController();
       generateBtn.disabled = true;
-      generateBtn.textContent = '生成中...';
+      document.getElementById('generate-label').textContent = '生成中...';
+      document.getElementById('generate-spinner').style.display = 'inline-block';
       cancelGenerateBtn.style.display = 'inline-block';
       logEl.textContent = '正在用 ' + llmProviderSelect.value + ' 生成 GeoGebra 指令...';
       try {
@@ -950,7 +1044,9 @@
         logEl.textContent = '生成出错：' + error.message;
       } finally {
         generateBtn.disabled = false;
-        generateBtn.textContent = '生成 GeoGebra 指令';
+        document.getElementById('generate-label').textContent = '生成 GeoGebra 指令';
+        const spinner = document.getElementById('generate-spinner');
+        if (spinner) spinner.style.display = 'none';
         if (cancelGenerateBtn) cancelGenerateBtn.style.display = 'none';
         generateAbortController = null;
       }
