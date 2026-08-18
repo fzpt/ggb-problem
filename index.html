@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeoGebra Geometry 指令建图台</title>
+  <style>
+    :root {
+      --ink: #17221f;
+      --muted: #61716b;
+      --paper: #f5efe2;
+      --panel: rgba(255, 250, 239, 0.88);
+      --line: rgba(23, 34, 31, 0.16);
+      --moss: #234c3b;
+      --mint: #b7e3c5;
+      --clay: #c5603b;
+      --gold: #d8a93f;
+      --shadow: 0 30px 80px rgba(35, 76, 59, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", serif;
+      background:
+        radial-gradient(circle at 8% 12%, rgba(216, 169, 63, 0.26), transparent 32rem),
+        radial-gradient(circle at 92% 82%, rgba(183, 227, 197, 0.44), transparent 34rem),
+        linear-gradient(135deg, #f8f0df 0%, #edf5e8 54%, #f7e8cf 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(23,34,31,0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23,34,31,0.045) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(circle at 50% 45%, black, transparent 78%);
+    }
+
+    .shell {
+      width: min(1480px, calc(100vw - 36px));
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 28px 0 34px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 22px;
+    }
+
+    .hero {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 24px;
+      padding: 18px 4px 0;
+      animation: rise 700ms cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--clay);
+      font: 700 12px/1.1 "Gill Sans", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(34px, 5vw, 74px);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+    }
+
+    .hero p {
+      max-width: 430px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.54);
+      color: var(--moss);
+      font: 700 13px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 5px rgba(216,169,63,0.16);
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(340px, 0.78fr) minmax(460px, 1.22fr);
+      gap: 22px;
+      animation: rise 800ms 90ms cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    .card {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+    }
+
+    .editor-card {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 620px;
+    }
+
+    .card-head {
+      padding: 22px 24px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+      font: 700 12px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--moss);
+    }
+
+    .shortcuts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    button, select {
+      font: 700 13px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+    }
+
+    button {
+      border: 1px solid rgba(23,34,31,0.18);
+      border-radius: 6px;
+      background: #fff8ec;
+      padding: 10px 13px;
+      cursor: pointer;
+      transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      background: #ffffff;
+      box-shadow: 0 12px 28px rgba(35,76,59,0.13);
+    }
+
+    button.primary {
+      color: #fff9ed;
+      background: var(--moss);
+      border-color: var(--moss);
+    }
+
+    button.primary:hover { background: #17382b; }
+
+    select {
+      border: 1px solid rgba(23,34,31,0.18);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.72);
+      padding: 9px 34px 9px 12px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 100%;
+      min-height: 360px;
+      resize: none;
+      border: 0;
+      outline: 0;
+      padding: 24px;
+      color: #183027;
+      background:
+        linear-gradient(90deg, rgba(197,96,59,0.09) 1px, transparent 1px) 0 0 / 44px 44px,
+        linear-gradient(rgba(35,76,59,0.07) 1px, transparent 1px) 0 0 / 44px 44px,
+        rgba(255, 252, 245, 0.72);
+      font: 17px/1.58 Consolas, "Courier New", monospace;
+      tab-size: 2;
+    }
+
+    .editor-foot {
+      display: grid;
+      gap: 14px;
+      padding: 16px 18px 18px;
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,0.38);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .viewer-card {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 620px;
+    }
+
+    .viewer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px 16px 24px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(35,76,59,0.08), rgba(216,169,63,0.07));
+    }
+
+    .viewer-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font: 700 13px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--moss);
+    }
+
+    .compass {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(35,76,59,0.28);
+      border-radius: 50%;
+      background: conic-gradient(from 45deg, var(--clay), var(--gold), var(--mint), var(--moss), var(--clay));
+      box-shadow: inset 0 0 0 8px #fff7e8;
+    }
+
+    .ggb-wrap {
+      position: relative;
+      min-height: 0;
+      padding: 16px;
+      background: rgba(255,250,239,0.46);
+    }
+
+    #ggb-element {
+      width: 100%;
+      height: 100%;
+      min-height: 540px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fffdf8;
+      box-shadow: inset 0 0 0 1px rgba(23,34,31,0.12), 0 18px 50px rgba(23,34,31,0.12);
+    }
+
+    .loading {
+      position: absolute;
+      inset: 16px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: repeating-linear-gradient(-35deg, #fff9ed, #fff9ed 14px, #f2eadc 14px, #f2eadc 28px);
+      color: var(--moss);
+      text-align: center;
+      font: 700 18px/1.4 "Gill Sans", "Trebuchet MS", sans-serif;
+    }
+
+    .loading small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font: 400 14px/1.5 "Iowan Old Style", serif;
+    }
+
+    .log {
+      min-height: 22px;
+      color: var(--muted);
+      font: 14px/1.45 Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+
+    .left-column {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      min-width: 0;
+    }
+    .upload-card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .drop-zone {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 0 22px;
+      padding: 14px 16px;
+      min-height: 80px;
+      border: 1px dashed var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.42);
+      color: var(--muted);
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 180ms ease, background 180ms ease;
+    }
+    .drop-zone.has-image {
+      padding: 0;
+      min-height: 0;
+      border-style: solid;
+      background: transparent;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--moss);
+      background: rgba(255, 255, 255, 0.72);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      pointer-events: none;
+    }
+    .drop-zone .thumb {
+      display: block;
+      width: 100%;
+      max-height: 360px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: #fffdf8;
+    }
+    .extracted-panel {
+      padding: 0 22px 10px;
+    }
+    .extracted-label {
+      margin: 0 0 8px;
+      font: 700 12px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--moss);
+    }
+   .extracted-text {
+     min-height: 60px;
+     max-height: 140px;
+     overflow: auto;
+     padding: 12px 14px;
+     border: 1px solid var(--line);
+     border-radius: 6px;
+     background: rgba(255, 255, 255, 0.52);
+     color: var(--ink);
+     font: 14px/1.55 "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+     white-space: pre-wrap;
+   }
+    .recognized-text {
+      min-height: 60px;
+      height: 80px;
+      resize: vertical;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.62);
+      color: var(--ink);
+      font: 15px/1.6 "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    }
+    .recognized-text:focus {
+      outline: 2px solid var(--mint);
+      border-color: var(--moss);
+    }
+    .assumptions {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: rgba(216, 169, 63, 0.12);
+      color: var(--clay);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .provider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 22px 0;
+    }
+    .provider-row label {
+      font: 700 12px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--moss);
+    }
+    .upload-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 18px 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.38);
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(18px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (max-width: 980px) {
+      .hero { align-items: start; flex-direction: column; }
+      .workspace { grid-template-columns: 1fr; }
+      .editor-card, .viewer-card { min-height: auto; }
+      #ggb-element { min-height: 460px; }
+    }
+
+    @media (max-width: 620px) {
+      .shell { width: min(100vw - 20px, 1480px); padding-top: 12px; }
+      .card { border-radius: 8px; }
+      .viewer-head, .card-head { padding-inline: 16px; }
+      textarea { padding: 18px; font-size: 15px; }
+      .actions button, select { width: 100%; }
+      #ggb-element { min-height: 390px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-label="页面介绍">
+      <div>
+        <p class="eyebrow">GeoGebra Geometry Console</p>
+        <h1>用文本指令，现场生成几何图形。</h1>
+      </div>
+      <div>
+        <p>在左侧写入 GeoGebra 指令，每行一条；页面会自动清空并重建右侧 Geometry 画布。适合把构造步骤、教学脚本或练习题快速变成可视图形。</p>
+        <div class="status-pill"><span class="dot" id="status-dot"></span><span id="status-text">正在加载 GeoGebra...</span></div>
+      </div>
+    </section>
+    <section class="workspace">
+      <div class="left-column">
+        <article class="card upload-card">
+          <div class="card-head">
+            <div class="label-row">
+              <span>From Photo</span>
+              <span id="upload-status">Mock 模式</span>
+            </div>
+            <div class="shortcuts" aria-label="图片操作">
+              <button type="button" id="paste-image">粘贴截图</button>
+              <button type="button" id="clear-image">清除</button>
+            </div>
+          </div>
+
+          <div class="drop-zone" id="drop-zone">
+            <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp" />
+            <span id="drop-prompt">拖拽或点击上传几何题照片</span>
+            <img id="image-thumb" class="thumb" alt="照片预览" style="display: none;" />
+          </div>
+
+          <div class="provider-row">
+            <label for="ocr-provider">文字识别</label>
+            <select id="ocr-provider">
+              <option value="mock">Mock（本地示例）</option>
+              <option value="baidu" selected>百度 OCR（需要 API key）</option>
+            </select>
+          </div>
+
+          <div class="upload-foot">
+            <button class="primary" id="recognize" type="button">识别题目</button>
+          </div>
+
+          <div class="extracted-panel" id="recognized-panel" style="display: none;">
+            <div class="extracted-label">识别出的题目（可编辑）</div>
+            <textarea id="recognized-text" class="recognized-text" spellcheck="false" aria-label="识别出的题目文字"></textarea>
+          </div>
+
+          <div class="provider-row">
+            <label for="llm-provider">指令生成</label>
+            <select id="llm-provider">
+              <option value="mock">Mock（本地示例）</option>
+              <option value="kimi" selected>Kimi（需要 API key）</option>
+            </select>
+          </div>
+
+          <div class="upload-foot">
+            <button class="primary" id="generate" type="button" disabled>生成 GeoGebra 指令</button>
+              <button id="cancel-generate" type="button" style="display: none;">终止生成</button>
+          </div>
+
+          <div class="extracted-panel" id="extracted-panel" style="display: none;">
+            <div class="extracted-label">解析结果</div>
+            <div class="extracted-text" id="extracted-text"></div>
+            <div class="assumptions" id="assumptions" style="display: none;"></div>
+          </div>
+        </article>
+        </article>
+
+        <article class="card editor-card">
+          <div class="card-head">
+            <div class="label-row">
+              <span>Construction Script</span>
+              <span id="line-count">0 条指令</span>
+            </div>
+            <div class="shortcuts" aria-label="示例指令">
+              <button type="button" data-example="triangle">三角形</button>
+              <button type="button" data-example="circle">圆与切线</button>
+              <button type="button" data-example="parabola">抛物线</button>
+            </div>
+          </div>
+
+          <textarea id="commands" spellcheck="false" aria-label="GeoGebra 建图指令"></textarea>
+
+          <div class="editor-foot">
+            <div class="actions">
+              <button class="primary" id="run" type="button">立即生成</button>
+              <button id="clear" type="button">清空画布</button>
+              <button id="copy" type="button">复制指令</button>
+            </div>
+            <p class="hint">写法示例：<code>A=(0,0)</code>、<code>Segment(A,B)</code>、<code>Circle(A,2)</code>。空行和以 <code>//</code> 开头的注释会被忽略。</p>
+            <div class="log" id="log" aria-live="polite"></div>
+          </div>
+        </article>
+      </div>
+
+      <article class="card viewer-card">
+        <div class="viewer-head">
+          <div class="viewer-title"><span class="compass"></span><span>Geometry View</span></div>
+          <button id="reset-view" type="button">重置视图</button>
+        </div>
+        <div class="ggb-wrap">
+          <div id="ggb-element"></div>
+          <div class="loading" id="loading">正在唤醒 GeoGebra Geometry<small>首次打开需要从 geogebra.org 加载嵌入脚本</small></div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const examples = {
+      triangle: `// 三角形与外接圆\nA = (0, 0)\nB = (5, 0)\nC = (1.6, 3.2)\nPolygon(A, B, C)\nSegment(A, B)\nSegment(B, C)\nSegment(C, A)\nl = PerpendicularBisector(A, B)\nm = PerpendicularBisector(B, C)\nO = Intersect(l, m)\nCircle(O, A)`,
+      circle: `// 圆与一条切线\nO = (0, 0)\nA = (3, 0)\nc = Circle(O, A)\nP = (6, 4)\nTangent(P, c)\nSegment(O, A)\nSegment(O, P)`,
+      parabola: `// 抛物线、焦点与准线\nF = (0, 1)\nd: y = -1\np = Parabola(F, d)\nA = (-3, 0)\nB = (3, 0)\nLine(A, B)`
+    };
+
+    const commandsEl = document.getElementById('commands');
+    const lineCountEl = document.getElementById('line-count');
+    const statusTextEl = document.getElementById('status-text');
+    const statusDotEl = document.getElementById('status-dot');
+    const loadingEl = document.getElementById('loading');
+    const logEl = document.getElementById('log');
+    let appletReady = false;
+    let ggbAppletInstance = null;
+    let initPollTimer = null;
+
+    commandsEl.value = examples.triangle;
+
+    function setStatus(text, color = '#d8a93f') {
+      statusTextEl.textContent = text;
+      statusDotEl.style.background = color;
+      statusDotEl.style.boxShadow = `0 0 0 5px ${color}26`;
+    }
+
+    function getCommands() {
+      return commandsEl.value
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('//'));
+    }
+
+    function updateLineCount() {
+      lineCountEl.textContent = `${getCommands().length} 条指令`;
+    }
+
+    function runCommands() {
+      updateLineCount();
+      if (!appletReady || !window.ggbApplet) {
+        logEl.textContent = 'GeoGebra 还没有加载完成，稍后会自动执行。';
+        return;
+      }
+
+      const commands = getCommands();
+      const failed = [];
+      window.ggbApplet.reset();
+      window.ggbApplet.setAxesVisible(true, true);
+      window.ggbApplet.setGridVisible(true);
+
+      commands.forEach((command, index) => {
+        try {
+          const ok = window.ggbApplet.evalCommand(command);
+          if (!ok) failed.push(`${index + 1}: ${command}`);
+        } catch (error) {
+          failed.push(`${index + 1}: ${command}`);
+        }
+      });
+
+      if (failed.length) {
+        setStatus('有指令未识别', '#c5603b');
+        logEl.textContent = `未执行成功：\n${failed.join('\n')}`;
+      } else {
+        setStatus(`已生成 ${commands.length} 条指令`, '#234c3b');
+        logEl.textContent = commands.length ? '画布已更新。' : '画布已清空。';
+      }
+    }
+
+    function finishGeoGebraInit(api) {
+      const appletApi = api || window.ggbApplet || ggbAppletInstance?.getAppletObject?.();
+      if (!appletApi || appletReady) return;
+
+      window.ggbApplet = appletApi;
+      appletReady = true;
+      clearInterval(initPollTimer);
+      loadingEl.style.display = 'none';
+      setStatus('GeoGebra 已就绪', '#234c3b');
+      logEl.textContent = 'GeoGebra 已就绪。点击“立即生成”执行左侧指令。';
+    }
+
+    window.ggbOnInit = finishGeoGebraInit;
+
+    function loadGeoGebra() {
+      const script = document.createElement('script');
+      script.src = 'https://www.geogebra.org/apps/deployggb.js';
+      script.async = true;
+      script.onload = () => {
+        const params = {
+          id: 'ggbApplet',
+          appName: 'geometry',
+          width: 900,
+          height: 620,
+          showToolBar: true,
+          showAlgebraInput: true,
+          showMenuBar: false,
+          enableLabelDrags: true,
+          enableShiftDragZoom: true,
+          useBrowserForJS: false,
+          appletOnLoad: finishGeoGebraInit
+        };
+        ggbAppletInstance = new GGBApplet(params, true);
+        ggbAppletInstance.inject('ggb-element');
+
+        // Some GeoGebra builds do not call appletOnLoad reliably in embedded browsers.
+        initPollTimer = setInterval(() => finishGeoGebraInit(), 250);
+      };
+      script.onerror = () => {
+        loadingEl.innerHTML = 'GeoGebra 脚本加载失败<small>请检查网络，或允许访问 https://www.geogebra.org</small>';
+        setStatus('GeoGebra 加载失败', '#c5603b');
+      };
+      document.head.appendChild(script);
+    }
+
+    document.querySelectorAll('[data-example]').forEach(button => {
+      button.addEventListener('click', () => {
+        commandsEl.value = examples[button.dataset.example];
+        updateLineCount();
+        logEl.textContent = '示例已填入。点击“立即生成”更新画布。';
+        commandsEl.focus();
+      });
+    });
+
+    document.getElementById('run').addEventListener('click', runCommands);
+    document.getElementById('clear').addEventListener('click', () => {
+      updateLineCount();
+      if (window.ggbApplet) {
+        window.ggbApplet.reset();
+        window.ggbApplet.setAxesVisible(true, true);
+        window.ggbApplet.setGridVisible(true);
+      }
+      setStatus('画布已清空', '#234c3b');
+      logEl.textContent = '画布已清空，左侧指令已保留。';
+      commandsEl.focus();
+    });
+    document.getElementById('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(commandsEl.value);
+      logEl.textContent = '指令已复制到剪贴板。';
+    });
+    document.getElementById('reset-view').addEventListener('click', () => {
+      if (window.ggbApplet) {
+        window.ggbApplet.setCoordSystem(-6, 8, -4, 6);
+        logEl.textContent = '视图范围已重置。';
+      }
+    });
+    commandsEl.addEventListener('input', updateLineCount);
+
+    // ---------- Photo upload & two-step extraction ----------
+    async function fetchWithTimeout(url, options, timeoutMs = 300000, abortController = null) {
+      const controller = abortController || new AbortController();
+      const id = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return res;
+      } catch (err) {
+        clearTimeout(id);
+        if (err.name === 'AbortError') throw new Error('请求已取消或超时');
+        throw err;
+      }
+    }
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const dropPrompt = document.getElementById('drop-prompt');
+    const imageThumb = document.getElementById('image-thumb');
+    const uploadStatus = document.getElementById('upload-status');
+    const ocrProviderSelect = document.getElementById('ocr-provider');
+    const llmProviderSelect = document.getElementById('llm-provider');
+    const recognizeBtn = document.getElementById('recognize');
+    const generateBtn = document.getElementById('generate');
+    const recognizedPanel = document.getElementById('recognized-panel');
+    const recognizedText = document.getElementById('recognized-text');
+    const extractedPanel = document.getElementById('extracted-panel');
+    const extractedText = document.getElementById('extracted-text');
+    const assumptionsEl = document.getElementById('assumptions');
+    const pasteImageBtn = document.getElementById('paste-image');
+    const clearImageBtn = document.getElementById('clear-image');
+    let currentImageDataUrl = null;
+    let lastExtractedCommands = '';
+
+    function updateStatus() {
+      if (!currentImageDataUrl) {
+        uploadStatus.textContent = `${ocrProviderSelect.value} / ${llmProviderSelect.value}`;
+        return;
+      }
+      uploadStatus.textContent = `已选图片 · ${ocrProviderSelect.value} / ${llmProviderSelect.value}`;
+    }
+
+    function showImagePreview(dataUrl) {
+      currentImageDataUrl = dataUrl;
+      imageThumb.src = dataUrl;
+      imageThumb.style.display = 'block';
+      dropPrompt.style.display = 'none';
+      dropZone.classList.add('has-image');
+      updateStatus();
+    }
+
+    function clearImage() {
+      currentImageDataUrl = null;
+      lastExtractedCommands = '';
+      imageThumb.src = '';
+      imageThumb.style.display = 'none';
+      dropPrompt.style.display = 'block';
+      dropZone.classList.remove('has-image');
+      recognizedPanel.style.display = 'none';
+      recognizedText.value = '';
+      extractedPanel.style.display = 'none';
+      extractedText.textContent = '';
+      assumptionsEl.style.display = 'none';
+      assumptionsEl.textContent = '';
+      generateBtn.disabled = true;
+      updateStatus();
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        showImagePreview(dataUrl);
+      } catch (error) {
+        logEl.textContent = '读取图片失败：' + error.message;
+      }
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = event.dataTransfer.files[0];
+      if (!file) return;
+      fileInput.files = event.dataTransfer.files;
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        showImagePreview(dataUrl);
+      } catch (error) {
+        logEl.textContent = '读取图片失败：' + error.message;
+      }
+    });
+
+    pasteImageBtn.addEventListener('click', async () => {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find(t => t.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const dataUrl = await readFileAsDataUrl(blob);
+            showImagePreview(dataUrl);
+            return;
+          }
+        }
+        logEl.textContent = '剪贴板里没有找到图片。';
+      } catch (error) {
+        logEl.textContent = '粘贴失败：' + error.message;
+      }
+    });
+
+    document.addEventListener('paste', async (event) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const blob = item.getAsFile();
+          if (blob) {
+            try {
+              const dataUrl = await readFileAsDataUrl(blob);
+              showImagePreview(dataUrl);
+              logEl.textContent = '截图已粘贴，点击「识别题目」。';
+            } catch (error) {
+              logEl.textContent = '粘贴读取失败：' + error.message;
+            }
+          }
+          return;
+        }
+      }
+    });
+
+    clearImageBtn.addEventListener('click', clearImage);
+
+    ocrProviderSelect.addEventListener('change', updateStatus);
+    llmProviderSelect.addEventListener('change', updateStatus);
+
+    recognizeBtn.addEventListener('click', async () => {
+      if (!currentImageDataUrl) {
+        logEl.textContent = '请先上传或粘贴一张照片。';
+        return;
+      }
+      recognizeBtn.disabled = true;
+      recognizeBtn.textContent = '识别中...';
+      logEl.textContent = '正在用 ' + ocrProviderSelect.value + ' 识别题目文字...';
+      try {
+        const response = await fetchWithTimeout('/api/ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: currentImageDataUrl, provider: ocrProviderSelect.value })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || '识别失败');
+        }
+        recognizedText.value = result.text || '（未识别到文字）';
+        recognizedPanel.style.display = 'block';
+        generateBtn.disabled = false;
+        logEl.textContent = `OCR 完成（${result.provider}）。请检查文字，然后点击「生成 GeoGebra 指令」。`;
+      } catch (error) {
+        logEl.textContent = '识别出错：' + error.message;
+      } finally {
+        recognizeBtn.disabled = false;
+        recognizeBtn.textContent = '识别题目';
+      }
+    });
+
+
+    const cancelGenerateBtn = document.getElementById('cancel-generate');
+    let generateAbortController = null;
+
+    cancelGenerateBtn.addEventListener('click', async () => {
+      if (generateAbortController) {
+        generateAbortController.abort();
+        generateAbortController = null;
+      }
+      try {
+        await fetch('/api/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        // ignore
+      }
+      generateBtn.disabled = false;
+      generateBtn.textContent = '生成 GeoGebra 指令';
+      cancelGenerateBtn.style.display = 'none';
+      logEl.textContent = '已终止生成。';
+    });
+
+    generateBtn.addEventListener('click', async () => {
+      const text = recognizedText.value.trim();
+      if (!text) {
+        logEl.textContent = '识别题目文字为空，无法生成指令。';
+        return;
+      }
+      generateAbortController = new AbortController();
+      generateBtn.disabled = true;
+      generateBtn.textContent = '生成中...';
+      cancelGenerateBtn.style.display = 'inline-block';
+      logEl.textContent = '正在用 ' + llmProviderSelect.value + ' 生成 GeoGebra 指令...';
+      try {
+        const response = await fetchWithTimeout('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, provider: llmProviderSelect.value, options: { mode: 'direct' } })
+        }, 300000, generateAbortController);
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || '生成失败');
+        }
+        extractedText.textContent = result.text || '（无解析文字）';
+        if (result.assumptions && result.assumptions.length) {
+          assumptionsEl.textContent = result.assumptions.join('\n');
+          assumptionsEl.style.display = 'block';
+        } else {
+          assumptionsEl.style.display = 'none';
+        }
+        extractedPanel.style.display = 'block';
+        lastExtractedCommands = (result.commands || []).join('\n');
+        if (lastExtractedCommands) {
+          commandsEl.value = lastExtractedCommands;
+          updateLineCount();
+          runCommands();
+          logEl.textContent = `生成完成。使用 ${result.provider} 生成 ${result.commands.length} 条指令。`;
+        } else {
+          logEl.textContent = '生成完成，但没有可用指令。';
+        }
+      } catch (error) {
+        logEl.textContent = '生成出错：' + error.message;
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = '生成 GeoGebra 指令';
+        if (cancelGenerateBtn) cancelGenerateBtn.style.display = 'none';
+        generateAbortController = null;
+      }
+    });
+
+    updateLineCount();
+    loadGeoGebra();
+  </script>
+</body>
+</html>
