@@ -30,7 +30,7 @@ export default function GeoGebraViewer() {
         appletOnLoad: () => {
           appletRef.current = window.ggbApplet;
           setReady(true);
-          setStatus({ text: 'GeoGebra 已就绪', color: '#234c3b' });
+          setStatus({ text: 'GeoGebra 已就绪', color: '#333333' });
           setLog('GeoGebra 已加载完成，可以执行指令。');
         },
       };
@@ -39,7 +39,7 @@ export default function GeoGebraViewer() {
       appletRef.current = applet;
     };
     script.onerror = () => {
-      setStatus({ text: 'GeoGebra 加载失败', color: '#c5603b' });
+      setStatus({ text: 'GeoGebra 加载失败', color: '#555555' });
       setLog('GeoGebra 脚本加载失败，请检查网络。');
     };
     document.head.appendChild(script);
@@ -100,8 +100,8 @@ export default function GeoGebraViewer() {
     <div className="card flex flex-col h-full min-h-[620px]">
       <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 bg-gradient-to-r from-moss/10 to-gold/10">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full border border-moss/30 bg-gradient-to-br from-clay via-gold to-moss shadow-inner" />
-          <span className="text-sm font-bold tracking-widest text-moss uppercase">Geometry View</span>
+          <div className="w-8 h-8 rounded-full border border-black/10 bg-[#e5e5e5] shadow-inner" />
+          <span className="text-sm font-bold tracking-widest text-ink uppercase">Geometry View</span>
         </div>
         <button
           onClick={() => window.ggbApplet?.setCoordSystem(-6, 8, -4, 6)}
