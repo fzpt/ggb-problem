@@ -443,6 +443,98 @@
       border-top: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.38);
     }
+
+    .tab-header {
+      display: flex;
+      gap: 6px;
+      padding: 12px 18px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .tab-button {
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: var(--muted);
+      font: 700 13px/1 "Gill Sans", "Trebuchet MS", sans-serif;
+      cursor: pointer;
+      transition: background 160ms ease, color 160ms ease;
+    }
+    .tab-button:hover {
+      background: rgba(255,255,255,0.5);
+      color: var(--ink);
+    }
+    .tab-button.active {
+      background: rgba(255,255,255,0.85);
+      color: var(--moss);
+      box-shadow: inset 0 -2px 0 var(--moss);
+    }
+    .tab-panel {
+      display: none;
+      animation: rise 300ms ease both;
+    }
+    .tab-panel.active {
+      display: block;
+    }
+    .refine-history {
+      min-height: 120px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .refine-entry {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .refine-entry.user {
+      align-items: flex-end;
+    }
+    .refine-entry.kimi {
+      align-items: flex-start;
+    }
+    .refine-bubble {
+      max-width: 90%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font: 14px/1.5 "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+      white-space: pre-wrap;
+    }
+    .refine-entry.user .refine-bubble {
+      background: var(--moss);
+      color: #fff;
+      border-bottom-right-radius: 2px;
+    }
+    .refine-entry.kimi .refine-bubble {
+      background: rgba(255,255,255,0.72);
+      color: var(--ink);
+      border-bottom-left-radius: 2px;
+    }
+    .refine-input-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 18px 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,0.38);
+    }
+    .refine-input {
+      min-height: 56px;
+      resize: vertical;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.62);
+      color: var(--ink);
+      font: 15px/1.6 "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    }
+    .refine-input:focus {
+      outline: 2px solid var(--mint);
+      border-color: var(--moss);
+    }
     @keyframes rise {
       from { opacity: 0; transform: translateY(18px) scale(0.985); }
       to { opacity: 1; transform: translateY(0) scale(1); }
@@ -527,7 +619,11 @@
               </div>
             </div>
 
-            <div id="text-tab" class="tab-panel">
+            <div class="tab-header">
+              <button class="tab-button active" data-tab="text-tab" type="button">题目文字</button>
+              <button class="tab-button" data-tab="refine-tab" type="button">持续改进</button>
+            </div>
+            <div id="text-tab" class="tab-panel active">
               <div class="extracted-panel" id="recognized-panel">
                 <textarea id="recognized-text" class="recognized-text" spellcheck="false" aria-label="识别出的题目文字" placeholder="识别出的题目会显示在这里，也可以直接输入或修改..."></textarea>
               </div>
@@ -543,6 +639,13 @@
                 <button id="cancel-generate" type="button" style="display: none;">终止生成</button>
               </div>
             </div>
+            <div id="refine-tab" class="tab-panel">
+              <div class="refine-history" id="refine-history"></div>
+              <div class="refine-input-wrap">
+                <textarea id="refine-input" class="refine-input" spellcheck="false" placeholder="输入调整说明，例如：把 A 点往左移一点、添加 AB 边上的高、角 A 应该是 60 度..."></textarea>
+                <button class="primary" id="refine-send" type="button">发送给 Kimi</button>
+              </div>
+            </div></div>
           </div>
 
         </article>
@@ -1014,6 +1117,14 @@
 
     const cancelGenerateBtn = document.getElementById('cancel-generate');
     let generateAbortController = null;
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const textTab = document.getElementById('text-tab');
+    const refineTab = document.getElementById('refine-tab');
+    const refineHistory = document.getElementById('refine-history');
+    const refineInput = document.getElementById('refine-input');
+    const refineSend = document.getElementById('refine-send');
+    let refineHistoryData = [];
+
 
     cancelGenerateBtn.addEventListener('click', async () => {
       if (generateAbortController) {
@@ -1057,6 +1168,10 @@
           throw new Error(result.error || '生成失败');
         }
         lastExtractedCommands = (result.commands || []).join('\n');
+        switchTab('refine-tab');
+        refineHistory.innerHTML = '';
+        refineHistoryData = [];
+        appendRefineEntry('kimi', '初次生成 ' + (result.commands || []).length + ' 条指令。你可以在下方输入调整说明。');
         if (lastExtractedCommands) {
           commandsEl.value = lastExtractedCommands;
           updateLineCount();

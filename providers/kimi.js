@@ -146,6 +146,20 @@ function cleanJsonResponse(content) {
   return s;
 }
 
+const SYSTEM_PROMPT_REFINE = `You are a GeoGebra Geometry command refiner. Given an original geometry problem, current GeoGebra commands, and a user's adjustment instruction, output a complete revised list of GeoGebra commands as JSON.
+
+Output format: {"commands": ["A = (0,0)", "Segment(A,B)", ...]}
+
+Rules:
+1. Output ONLY valid JSON. No markdown fences. No explanations.
+2. Keep the original construction intent unless the user explicitly asks to change it.
+3. Apply the user's adjustment instruction precisely.
+4. If the user asks to move a point, update its coordinates.
+5. If the user asks to add an element, append the necessary commands.
+6. Return the FULL revised command list, not just changes.
+7. Use simple numeric coordinates.
+8. Fix any obvious errors in the current commands if they would prevent rendering.`;
+
 function callExtractFromText(text, options = {}) {
   const apiKey = options.apiKey || config.llm.kimi.apiKey;
   if (!apiKey) {
@@ -207,4 +221,42 @@ function extractFromText(text, options = {}) {
   return pendingPromise;
 }
 
-module.exports = { extractFromText, cancelCurrentRequest };
+
+function callRefineFromText(text, currentCommands, history, options = {}) {
+  const apiKey = options.apiKey || config.llm.kimi.apiKey;
+  if (!apiKey) {
+    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+  }
+  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const historyText = (history || []).map(h => `User: ${h.user}\nKimi:\n${(h.response || []).join('\n')}`).join('\n\n');
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT_REFINE },
+    { role: 'user', content: `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}` }
+  ];
+  return callKimi(apiKey, model, messages).then(content => {
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanJsonResponse(content));
+    } catch (error) {
+      throw new Error('Kimi response was not valid JSON: ' + error.message + '\nRaw: ' + content.slice(0, 500));
+    }
+    return {
+      text: text,
+      geometry: {},
+      commands: Array.isArray(parsed.commands) ? parsed.commands : [],
+      assumptions: parsed.assumptions || []
+    };
+  });
+}
+
+function refineFromText(text, currentCommands, history, options = {}) {
+  if (pendingPromise) {
+    return Promise.reject(new Error('Another Kimi request is still in progress. Please wait and try again.'));
+  }
+  pendingPromise = callRefineFromText(text, currentCommands, history, options).finally(() => {
+    pendingPromise = null;
+  });
+  return pendingPromise;
+}
+
+module.exports = { extractFromText, refineFromText, cancelCurrentRequest };

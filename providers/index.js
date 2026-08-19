@@ -34,6 +34,14 @@ function extractGeometryFromText(text, providerName, options) {
   return provider.extractFromText(text, options);
 }
 
+
+function refineGeometryCommands(text, currentCommands, history, providerName, options) {
+  const provider = providers[providerName] || providers[config.llm.provider];
+  if (!provider.refineFromText) {
+    return Promise.reject(new Error(`Provider ${providerName} does not support command refinement.`));
+  }
+  return provider.refineFromText(text, currentCommands, history, options);
+}
 function cancelCurrentRequest(providerName) {
   const name = providerName || config.llm.provider;
   if (name === 'kimi') {
@@ -48,5 +56,6 @@ module.exports = {
   extractTextFromImage,
   extractGeometryFromText,
   generateCommands,
-  cancelCurrentRequest
+  cancelCurrentRequest,
+  refineGeometryCommands
 };

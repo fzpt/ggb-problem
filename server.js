@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { URL } = require('node:url');
 const config = require('./config');
-const { extractTextFromImage, extractGeometryFromText, generateCommands, cancelCurrentRequest } = require('./providers');
+const { extractTextFromImage, extractGeometryFromText, refineGeometryCommands, generateCommands, cancelCurrentRequest } = require('./providers');
 
 const root = __dirname;
 
@@ -96,6 +96,41 @@ async function handleOcr(req, res) {
   }
 }
 
+
+async function handleRefine(req, res) {
+  try {
+    const raw = await readBody(req);
+    const body = JSON.parse(raw.toString('utf-8'));
+    if (!body.text || typeof body.text !== 'string') {
+      return sendJson(res, 400, { error: 'Missing or invalid text field.' });
+    }
+    if (!body.currentCommands || typeof body.currentCommands !== 'string') {
+      return sendJson(res, 400, { error: 'Missing or invalid currentCommands field.' });
+    }
+    const provider = body.provider || config.llm.provider;
+    const refined = await refineGeometryCommands(
+      body.text,
+      body.currentCommands,
+      body.history || [],
+      provider,
+      { instruction: body.instruction, ...body.options }
+    );
+    sendJson(res, 200, {
+      provider,
+      commands: refined.commands,
+      assumptions: refined.assumptions || []
+    });
+  } catch (error) {
+    console.error('[/api/refine] error:', error);
+    const provider = (() => {
+      try { return JSON.parse(raw.toString('utf-8')).provider || config.llm.provider; } catch { return config.llm.provider; }
+    })();
+    sendJson(res, 500, {
+      error: error.message || 'Refinement failed',
+      hint: providerHint('llm', provider)
+    });
+  }
+}
 async function handleExtract(req, res) {
   try {
     const raw = await readBody(req);
@@ -145,7 +180,14 @@ function serveStatic(req, res) {
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    const isHtml = ext === '.html';
+    const headers = { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' };
+    if (isHtml) {
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
+      headers['Pragma'] = 'no-cache';
+      headers['Expires'] = '0';
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
@@ -174,6 +216,11 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/api/cancel') {
     const cancelled = cancelCurrentRequest();
     sendJson(res, 200, { cancelled });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/refine') {
+    handleRefine(req, res);
     return;
   }
 
