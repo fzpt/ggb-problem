@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GeoGebra Geometry 指令建图台</title>
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+    <script src="https://www.geogebra.org/apps/deployggb.js" async></script>
+<title>GeoGebra Geometry 指令建图台</title>
   <style>
     :root {
       --ink: #17221f;
@@ -404,28 +408,6 @@
       border-radius: 6px;
       background: #fffdf8;
     }
-    .extracted-panel {
-      padding: 0 22px 10px;
-    }
-    .extracted-label {
-      margin: 0 0 8px;
-      font: 700 12px/1 "Gill Sans", "Trebuchet MS", sans-serif;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--moss);
-    }
-   .extracted-text {
-     min-height: 60px;
-     max-height: 140px;
-     overflow: auto;
-     padding: 12px 14px;
-     border: 1px solid var(--line);
-     border-radius: 6px;
-     background: rgba(255, 255, 255, 0.52);
-     color: var(--ink);
-     font: 14px/1.55 "Iowan Old Style", "Palatino Linotype", Palatino, serif;
-     white-space: pre-wrap;
-   }
     .recognized-text {
       min-height: 60px;
       height: 80px;
@@ -440,15 +422,6 @@
     .recognized-text:focus {
       outline: 2px solid var(--mint);
       border-color: var(--moss);
-    }
-    .assumptions {
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 6px;
-      background: rgba(216, 169, 63, 0.12);
-      color: var(--clay);
-      font-size: 13px;
-      line-height: 1.5;
     }
     .provider-row {
       display: flex;
@@ -555,7 +528,7 @@
             </div>
 
             <div id="text-tab" class="tab-panel">
-              <div class="extracted-panel">
+              <div class="extracted-panel" id="recognized-panel">
                 <textarea id="recognized-text" class="recognized-text" spellcheck="false" aria-label="识别出的题目文字" placeholder="识别出的题目会显示在这里，也可以直接输入或修改..."></textarea>
               </div>
               <div class="provider-row">
@@ -572,12 +545,6 @@
             </div>
           </div>
 
-          <div class="extracted-panel" id="extracted-panel" style="display: none;">
-            <div class="extracted-label">解析结果</div>
-            <div class="extracted-text" id="extracted-text"></div>
-            <div class="assumptions" id="assumptions" style="display: none;"></div>
-          </div>
-        </article>
         </article>
 
         <article class="card editor-card">
@@ -703,10 +670,20 @@
 
     function loadGeoGebra() {
       const container = document.getElementById('ggb-element');
-      const script = document.createElement('script');
-      script.src = 'https://www.geogebra.org/apps/deployggb.js';
-      script.async = true;
-      script.onload = () => {
+      if (!container) return;
+
+      const initGeoGebra = () => {
+        if (typeof GGBApplet === 'undefined') {
+          console.error('[GeoGebra] GGBApplet not available');
+          loadingEl.innerHTML = 'GeoGebra 脚本未加载<small>请检查网络或点击重试</small><br><button type="button" id="retry-geogebra" style="margin-top:10px;padding:6px 12px;border-radius:6px;border:1px solid rgba(23,34,31,0.18);background:#fff8ec;cursor:pointer;">重试加载 GeoGebra</button>';
+          setStatus('GeoGebra 未加载', '#c5603b');
+          document.getElementById('retry-geogebra')?.addEventListener('click', () => {
+            loadingEl.innerHTML = '正在唤醒 GeoGebra Geometry<small>首次打开需要从 geogebra.org 加载嵌入脚本</small>';
+            loadGeoGebra();
+          });
+          return;
+        }
+
         const measure = () => {
           const rect = container.getBoundingClientRect();
           const parent = container.parentElement;
@@ -726,11 +703,20 @@
           showMenuBar: false,
           enableLabelDrags: true,
           enableShiftDragZoom: true,
-          useBrowserForJS: false,
+          useBrowserForJS: true,
+          allowStyleBar: true,
           appletOnLoad: finishGeoGebraInit
         };
-        ggbAppletInstance = new GGBApplet(params, true);
-        ggbAppletInstance.inject('ggb-element');
+        try {
+          ggbAppletInstance = new GGBApplet(params, true);
+          ggbAppletInstance.inject('ggb-element');
+          console.log('[GeoGebra] inject called');
+        } catch (err) {
+          console.error('[GeoGebra] inject failed', err);
+          loadingEl.innerHTML = 'GeoGebra 初始化失败<small>' + err.message + '</small>';
+          setStatus('GeoGebra 初始化失败', '#c5603b');
+          return;
+        }
 
         const resize = () => {
           if (!window.ggbApplet) return;
@@ -743,14 +729,55 @@
           ro.observe(container);
         }
 
-        // Some GeoGebra builds do not call appletOnLoad reliably in embedded browsers.
-        initPollTimer = setInterval(() => finishGeoGebraInit(), 250);
+        // Poll for applet readiness in embedded browsers where appletOnLoad may not fire.
+        let pollCount = 0;
+        initPollTimer = setInterval(() => {
+          pollCount++;
+          const api = window.ggbApplet || ggbAppletInstance?.getAppletObject?.();
+          if (api) {
+            console.log('[GeoGebra] ready via poll after', pollCount, 'ticks');
+            finishGeoGebraInit(api);
+            return;
+          }
+          if (pollCount > 240) { // ~60s
+            clearInterval(initPollTimer);
+            initPollTimer = null;
+            loadingEl.innerHTML = 'GeoGebra 加载超时<small>内置浏览器可能无法加载外部脚本，请点击下方按钮重试，或在系统浏览器中打开 http://localhost:3000</small><br><button type="button" id="retry-geogebra" style="margin-top:10px;padding:6px 12px;border-radius:6px;border:1px solid rgba(23,34,31,0.18);background:#fff8ec;cursor:pointer;">重试加载 GeoGebra</button>';
+            setStatus('GeoGebra 加载超时', '#c5603b');
+            document.getElementById('retry-geogebra')?.addEventListener('click', () => {
+              container.innerHTML = '';
+              loadingEl.innerHTML = '正在唤醒 GeoGebra Geometry<small>首次打开需要从 geogebra.org 加载嵌入脚本</small>';
+              loadGeoGebra();
+            });
+          }
+        }, 250);
       };
-      script.onerror = () => {
-        loadingEl.innerHTML = 'GeoGebra 脚本加载失败<small>请检查网络，或稍后重试 https://www.geogebra.org</small>';
-        setStatus('GeoGebra 加载失败', '#c5603b');
-      };
-      document.head.appendChild(script);
+
+      if (typeof GGBApplet !== 'undefined') {
+        console.log('[GeoGebra] GGBApplet already loaded');
+        initGeoGebra();
+      } else {
+        console.log('[GeoGebra] waiting for deployggb.js...');
+        let waitTicks = 0;
+        const waitTimer = setInterval(() => {
+          waitTicks++;
+          if (typeof GGBApplet !== 'undefined') {
+            clearInterval(waitTimer);
+            console.log('[GeoGebra] deployggb.js ready after', waitTicks, 'ticks');
+            initGeoGebra();
+          } else if (waitTicks > 60) { // ~15s
+            clearInterval(waitTimer);
+            console.error('[GeoGebra] deployggb.js load timeout');
+            loadingEl.innerHTML = 'GeoGebra 脚本加载超时<small>内置浏览器可能无法访问 geogebra.org，请点击下方按钮重试，或在系统浏览器中打开 http://localhost:3000</small><br><button type="button" id="retry-geogebra" style="margin-top:10px;padding:6px 12px;border-radius:6px;border:1px solid rgba(23,34,31,0.18);background:#fff8ec;cursor:pointer;">重试加载 GeoGebra</button>';
+            setStatus('GeoGebra 加载超时', '#c5603b');
+            document.getElementById('retry-geogebra')?.addEventListener('click', () => {
+              container.innerHTML = '';
+              loadingEl.innerHTML = '正在唤醒 GeoGebra Geometry<small>首次打开需要从 geogebra.org 加载嵌入脚本</small>';
+              loadGeoGebra();
+            });
+          }
+        }, 250);
+      }
     }
 
     document.querySelectorAll('[data-example]').forEach(button => {
@@ -785,10 +812,6 @@
       }
     });
     commandsEl.addEventListener('input', updateLineCount);
-
-    recognizedText.addEventListener('input', () => {
-      generateBtn.disabled = !recognizedText.value.trim();
-    });
 
     // ---------- Tab switching ----------
     const tabBtns = document.querySelectorAll('.tab-btn');
@@ -833,9 +856,10 @@
     const generateBtn = document.getElementById('generate');
     const recognizedPanel = document.getElementById('recognized-panel');
     const recognizedText = document.getElementById('recognized-text');
-    const extractedPanel = document.getElementById('extracted-panel');
-    const extractedText = document.getElementById('extracted-text');
-    const assumptionsEl = document.getElementById('assumptions');
+
+    recognizedText.addEventListener('input', () => {
+      generateBtn.disabled = !recognizedText.value.trim();
+    });
     const pasteImageBtn = document.getElementById('paste-image');
     const clearImageBtn = document.getElementById('clear-image');
     let currentImageDataUrl = null;
@@ -867,10 +891,6 @@
       dropZone.classList.remove('has-image');
       recognizedPanel.style.display = 'none';
       recognizedText.value = '';
-      extractedPanel.style.display = 'none';
-      extractedText.textContent = '';
-      assumptionsEl.style.display = 'none';
-      assumptionsEl.textContent = '';
       generateBtn.disabled = true;
       switchTab('image-tab');
       updateStatus();
@@ -1036,14 +1056,6 @@
         if (!response.ok) {
           throw new Error(result.error || '生成失败');
         }
-        extractedText.textContent = result.text || '（无解析文字）';
-        if (result.assumptions && result.assumptions.length) {
-          assumptionsEl.textContent = result.assumptions.join('\n');
-          assumptionsEl.style.display = 'block';
-        } else {
-          assumptionsEl.style.display = 'none';
-        }
-        extractedPanel.style.display = 'block';
         lastExtractedCommands = (result.commands || []).join('\n');
         if (lastExtractedCommands) {
           commandsEl.value = lastExtractedCommands;
@@ -1065,7 +1077,15 @@
       }
     });
 
+    window.addEventListener('error', (e) => {
+      console.error('[Page Error]', e.message, e.filename, e.lineno);
+      if (loadingEl && !appletReady) {
+        loadingEl.innerHTML = '页面脚本出错<small>' + e.message + '</small>';
+        setStatus('脚本错误', '#c5603b');
+      }
+    });
     updateLineCount();
+    console.log('[Page] calling loadGeoGebra...');
     loadGeoGebra();
   </script>
 </body>
