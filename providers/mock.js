@@ -74,4 +74,32 @@ function extractFromText(text, options = {}) {
   return Promise.resolve(result);
 }
 
-module.exports = { extractText, extractFromText };
+function refineFromText(text, currentCommands, history, options = {}) {
+  const instruction = (options.instruction || '').toLowerCase();
+  const commands = (currentCommands || '').split(/\r?\n/);
+  let base = commands.filter(line => line && !line.startsWith('//'));
+
+  const hasPerpendicular = /垂直|perpendicular|高度|height|垂线段|高线/.test(instruction);
+  const removeInfiniteLines = /不要直线|不要直接|remove line|去掉直线|删除直线/.test(instruction);
+
+  if (removeInfiniteLines) {
+    base = base.filter(line => !line.includes('Line('));
+  }
+
+  if (hasPerpendicular) {
+    base = base.concat([
+      '// 添加垂直高度线段',
+      'D = (2, 0)',
+      'h = Segment(C, D)',
+      'Segment(A, D)'
+    ]);
+  }
+
+  return Promise.resolve({
+    text: text || '',
+    commands: base,
+    assumptions: ['Mock refinement: adjusted commands based on instruction.']
+  });
+}
+
+module.exports = { extractText, extractFromText, refineFromText };

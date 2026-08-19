@@ -16,9 +16,15 @@ async function post(path, body, signal) {
       body: JSON.stringify(body),
       ...combined,
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text || `请求失败，状态码 ${res.status}` };
+    }
     if (!res.ok) {
-      throw new Error(data.error || data.message || '请求失败');
+      throw new Error(data.error || data.message || text || `请求失败 ${res.status}`);
     }
     return data;
   } finally {
