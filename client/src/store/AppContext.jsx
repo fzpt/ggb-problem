@@ -8,8 +8,8 @@ export function AppProvider({ children }) {
   const [commands, setCommands] = useState('');
   const [refineHistory, setRefineHistory] = useState([]);
   const [activeTab, setActiveTab] = useState('image');
-  const [ocrProvider, setOcrProvider] = useState('baidu');
-  const [llmProvider, setLlmProvider] = useState('kimi');
+  const [ocrProvider, setOcrProvider] = useState('mock');
+  const [llmProvider, setLlmProvider] = useState('mock');
   const [status, setStatus] = useState({ text: '准备就绪', color: '#d8a93f' });
   const [log, setLog] = useState('');
 
