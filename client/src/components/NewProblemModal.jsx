@@ -16,9 +16,9 @@ export default function NewProblemModal() {
   const [name, setName] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState(null);
   const [ocrText, setOcrText] = useState('');
-  const [activeTab, setActiveTab] = useState('image');
-  const [ocrProvider, setOcrProvider] = useState('mock');
-  const [llmProvider, setLlmProvider] = useState('mock');
+ const [activeTab, setActiveTab] = useState('image');
+ const [ocrProvider, setOcrProvider] = useState('baidu');
+ const [llmProvider, setLlmProvider] = useState('kimi');
   const [recognizing, setRecognizing] = useState(false);
   const [draftProblemId, setDraftProblemId] = useState(null);
 

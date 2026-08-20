@@ -11,10 +11,10 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
     commands: '',
     refineHistory: [],
     refineInput: '',
-    activeTab: 'image',
-    ocrProvider: 'mock',
-    llmProvider: 'mock',
-  };
+   activeTab: 'image',
+   ocrProvider: 'baidu',
+   llmProvider: 'kimi',
+ };
 }
 
 export function AppProvider({ children }) {
