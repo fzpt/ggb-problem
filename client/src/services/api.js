@@ -1,5 +1,5 @@
 const API_BASE = '';
-const DEFAULT_TIMEOUT = 60000;
+const DEFAULT_TIMEOUT = 120000;
 
 async function post(path, body, signal) {
   const controller = new AbortController();
