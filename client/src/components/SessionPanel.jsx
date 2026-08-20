@@ -52,14 +52,17 @@ export default function SessionPanel() {
     }
   };
 
-  const sendRefine = async () => {
-    const instruction = refineInput.trim();
-    const text = ocrText.trim();
-    if (!instruction || !text) return;
-    const currentCommands = commands;
-    const needsReset = id !== drawnProblemId;
-    let baseHistory = [];
-    if (needsReset) {
+ const sendRefine = async () => {
+   const instruction = refineInput.trim();
+   const text = ocrText.trim();
+   if (!instruction || !text) {
+     setLog(!instruction ? '请输入调整说明。' : '缺少题目文字，无法发送调整请求。');
+     return;
+   }
+   const currentCommands = commands;
+   const needsReset = id !== drawnProblemId;
+   let baseHistory = [];
+   if (needsReset) {
       setDrawnProblemId(id);
       if (window.ggbApplet) {
         window.ggbApplet.reset();
@@ -82,10 +85,11 @@ export default function SessionPanel() {
    setRefineHistory(nextHistory);
    setRefineInput('');
    setRefining(true);
+   setLog('正在准备发送调整请求...');
    const controller = new AbortController();
    abortRefineRef.current = controller;
-   setLog('正在请 Kimi 根据说明调整指令...');
-    setStatus({ text: '正在调整...', color: '#555555' });
+   setLog('正在发送调整请求...');
+   setStatus({ text: '正在调整...', color: '#555555' });
    try {
      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, controller.signal);
      const newCommands = (res.commands || []).join('\n');

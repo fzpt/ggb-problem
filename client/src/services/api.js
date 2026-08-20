@@ -1,13 +1,22 @@
 const API_BASE = '';
 const DEFAULT_TIMEOUT = 120000;
 
+function combineSignals(s1, s2) {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  s1.addEventListener('abort', onAbort, { once: true });
+  s2.addEventListener('abort', onAbort, { once: true });
+  if (s1.aborted || s2.aborted) controller.abort();
+  return controller.signal;
+}
+
 async function post(path, body, signal) {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort(new Error('请求超时，请检查网络或 provider 配置'));
   }, DEFAULT_TIMEOUT);
   const combined = signal
-    ? { signal: AbortSignal.any([controller.signal, signal]) }
+    ? { signal: combineSignals(controller.signal, signal) }
     : { signal: controller.signal };
   try {
     const res = await fetch(`${API_BASE}${path}`, {
