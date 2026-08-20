@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import * as api from '../services/api';
 
@@ -23,8 +23,9 @@ export default function SessionPanel() {
     setDrawnProblemId,
   } = useApp();
 
-  const [refining, setRefining] = useState(false);
-  const [sessionTab, setSessionTab] = useState(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
+ const [refining, setRefining] = useState(false);
+ const [sessionTab, setSessionTab] = useState(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
+  const abortRefineRef = useRef(null);
 
   useEffect(() => {
     setSessionTab(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
@@ -78,14 +79,16 @@ export default function SessionPanel() {
     const nextHistory = resetEntry
       ? [...refineHistory, resetEntry, userEntry]
       : [...refineHistory, userEntry];
-    setRefineHistory(nextHistory);
-    setRefineInput('');
-    setRefining(true);
-    setLog('正在请 Kimi 根据说明调整指令...');
+   setRefineHistory(nextHistory);
+   setRefineInput('');
+   setRefining(true);
+   const controller = new AbortController();
+   abortRefineRef.current = controller;
+   setLog('正在请 Kimi 根据说明调整指令...');
     setStatus({ text: '正在调整...', color: '#555555' });
-    try {
-      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider);
-      const newCommands = (res.commands || []).join('\n');
+   try {
+     const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, controller.signal);
+     const newCommands = (res.commands || []).join('\n');
       const kimiEntry = { role: 'kimi', text: `已调整，生成 ${res.commands?.length || 0} 条指令。` };
       setRefineHistory([...nextHistory, kimiEntry]);
       if (newCommands) {
@@ -95,34 +98,36 @@ export default function SessionPanel() {
       } else {
         setLog('Kimi 没有返回可执行指令。');
       }
-    } catch (e) {
-      setRefineHistory([...nextHistory, { role: 'kimi', text: '调整出错：' + e.message }]);
-      setLog('调整失败：' + e.message);
-      setStatus({ text: '调整失败', color: '#555555' });
-    } finally {
-      setRefining(false);
-    }
+   } catch (e) {
+     if (e.name === 'AbortError' || (e.message && e.message.includes('aborted'))) {
+       setLog('已终止生成');
+       setStatus({ text: '已终止', color: '#555555' });
+     } else {
+       setRefineHistory([...nextHistory, { role: 'kimi', text: '调整出错：' + e.message }]);
+       setLog('调整失败：' + e.message);
+       setStatus({ text: '调整失败', color: '#555555' });
+     }
+   } finally {
+     setRefining(false);
+     abortRefineRef.current = null;
+   }
+ };
+
+  const cancelRefine = async () => {
+    abortRefineRef.current?.abort();
+    try { await api.cancelRequest(); } catch {}
   };
 
-  const onRefineKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendRefine();
-    }
-  };
+ const onRefineKeyDown = (e) => {
+   if (e.key === 'Enter' && !e.shiftKey) {
+     e.preventDefault();
+     sendRefine();
+   }
+ };
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(commands);
-      setLog('指令已复制到剪贴板。');
-    } catch {
-      setLog('复制失败。');
-    }
-  };
-
-  const loadExample = (key) => {
-    setCommands(EXAMPLES[key]);
-  };
+ const loadExample = (key) => {
+   setCommands(EXAMPLES[key]);
+ };
 
   const switchTab = (tab) => {
     setSessionTab(tab);
@@ -222,15 +227,18 @@ export default function SessionPanel() {
             onKeyDown={onRefineKeyDown}
             className="refine-input"
             placeholder="输入调整说明，例如：把 A 点往左移一点、添加 AB 边上的高..."
-            disabled={refining}
-          />
-          <button className="primary" onClick={sendRefine} disabled={!refineInput.trim() || refining}>
-            {refining ? '调整中…' : (llmProvider === 'kimi' ? '发送给 Kimi' : '发送调整说明')}
-          </button>
-        </div>
-        <div className="actions">
-          <button onClick={() => setCommands('')}>清空画布</button>
-          <button onClick={copy}>复制指令</button>
+           disabled={refining}
+         />
+          {refining ? (
+            <>
+              <button className="primary" disabled>调整中…</button>
+              <button onClick={cancelRefine}>终止</button>
+            </>
+          ) : (
+            <button className="primary" onClick={sendRefine} disabled={!refineInput.trim()}>
+              {llmProvider === 'kimi' ? '发送给 Kimi' : '发送调整说明'}
+            </button>
+          )}
         </div>
         <p className="hint">
           写法示例：<code>A=(0,0)</code>、<code>Segment(A,B)</code>、<code>Circle(A,2)</code>。空行和以 <code>//</code> 开头的注释会被忽略。
