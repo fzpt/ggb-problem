@@ -22,6 +22,11 @@ export default function SessionPanel() {
   } = useApp();
 
   const [refining, setRefining] = useState(false);
+  const [sessionTab, setSessionTab] = useState(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
+
+  useEffect(() => {
+    setSessionTab(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
+  }, [activeProblem?.activeTab]);
 
   if (!activeProblem) {
     return (
@@ -32,12 +37,6 @@ export default function SessionPanel() {
   }
 
   const { id, name, ocrText, commands, refineHistory, refineInput, llmProvider, activeTab } = activeProblem;
-
-  const [sessionTab, setSessionTab] = useState(activeTab === 'text' ? 'text' : 'refine');
-
-  useEffect(() => {
-    setSessionTab(activeTab === 'text' ? 'text' : 'refine');
-  }, [activeTab]);
 
   const setCommands = (value) => updateProblem(id, { commands: value });
   const setRefineInput = (value) => updateProblem(id, { refineInput: value });
