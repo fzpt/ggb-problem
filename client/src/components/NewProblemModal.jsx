@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import * as api from '../services/api';
 
@@ -20,6 +20,25 @@ export default function NewProblemModal() {
   const [ocrProvider, setOcrProvider] = useState('mock');
   const [llmProvider, setLlmProvider] = useState('mock');
   const [recognizing, setRecognizing] = useState(false);
+
+  // 支持在弹窗内用 Ctrl+V 直接粘贴图片
+  useEffect(() => {
+    const onGlobalPaste = (e) => {
+      if (e.defaultPrevented) return;
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        const imageFile = Array.from(files).find(f => f.type.startsWith('image/'));
+        if (imageFile) {
+          e.preventDefault();
+          handleFile(imageFile);
+          setActiveTab('image');
+          setLog('已从剪贴板粘贴图片，可点击识别题目。');
+        }
+      }
+    };
+    window.addEventListener('paste', onGlobalPaste);
+    return () => window.removeEventListener('paste', onGlobalPaste);
+  }, []);
   const [generating, setGenerating] = useState(false);
 
   const handleFile = (file) => {
