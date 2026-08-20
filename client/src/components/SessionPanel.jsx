@@ -17,6 +17,7 @@ export default function SessionPanel() {
   const {
     activeProblem,
     updateProblem,
+    log,
     setLog,
     setStatus,
     drawnProblemId,
