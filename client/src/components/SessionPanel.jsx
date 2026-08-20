@@ -55,6 +55,7 @@ export default function SessionPanel() {
  const sendRefine = async () => {
    const instruction = refineInput.trim();
    const text = ocrText.trim();
+   console.log('[sendRefine] clicked', { instruction: !!instruction, text: !!text, llmProvider, refining });
    if (!instruction || !text) {
      setLog(!instruction ? '请输入调整说明。' : '缺少题目文字，无法发送调整请求。');
      return;
@@ -89,9 +90,11 @@ export default function SessionPanel() {
    const controller = new AbortController();
    abortRefineRef.current = controller;
    setLog('正在发送调整请求...');
+   console.log('[sendRefine] sending', { textLen: text.length, instruction, llmProvider });
    setStatus({ text: '正在调整...', color: '#555555' });
    try {
      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, controller.signal);
+     console.log('[sendRefine] response', res);
      const newCommands = (res.commands || []).join('\n');
       const kimiEntry = { role: 'kimi', text: `已调整，生成 ${res.commands?.length || 0} 条指令。` };
       setRefineHistory([...nextHistory, kimiEntry]);
@@ -103,6 +106,7 @@ export default function SessionPanel() {
         setLog('Kimi 没有返回可执行指令。');
       }
    } catch (e) {
+     console.error('[sendRefine] error', e);
      if (e.name === 'AbortError' || (e.message && e.message.includes('aborted'))) {
        setLog('已终止生成');
        setStatus({ text: '已终止', color: '#555555' });
