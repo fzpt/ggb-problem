@@ -69,7 +69,9 @@ Rules:
 4. First create all points with numeric coordinates.
 5. Then create segments, lines, circles, polygons, angles.
 6. Use simple coordinates. Do not try to satisfy every constraint exactly; aim for a clear, approximate diagram.
-7. If the problem is complex, include only the main points and connections, and add a comment line starting with // for anything omitted.`;
+7. If the problem is complex, include only the main points and connections, and add a comment line starting with // for anything omitted.
+8. ONLY use GeoGebra Geometry commands that exist in this list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+9. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If an element cannot be constructed with these commands, omit it and add a comment starting with //.`;
 
 let currentRequest = null;
 
@@ -202,7 +204,9 @@ Rules:
 5. If the user asks to add an element, append the necessary commands.
 6. Return the FULL revised command list, not just changes.
 7. Use simple numeric coordinates.
-8. Fix any obvious errors in the current commands if they would prevent rendering.`;
+8. Fix any obvious errors in the current commands if they would prevent rendering.
+9. ONLY use GeoGebra Geometry commands from this allowed list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.`;
 
 function callExtractFromText(text, options = {}) {
   const apiKey = options.apiKey || config.llm.kimi.apiKey;
