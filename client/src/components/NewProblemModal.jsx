@@ -20,6 +20,7 @@ export default function NewProblemModal() {
   const [ocrProvider, setOcrProvider] = useState('mock');
   const [llmProvider, setLlmProvider] = useState('mock');
   const [recognizing, setRecognizing] = useState(false);
+  const [draftProblemId, setDraftProblemId] = useState(null);
 
   // 支持在弹窗内用 Ctrl+V 直接粘贴图片
   useEffect(() => {
@@ -76,8 +77,24 @@ export default function NewProblemModal() {
     setLog(`正在用 ${ocrProvider} 识别题目文字...`);
     try {
       const res = await api.recognizeImage(imageDataUrl, ocrProvider);
-      setOcrText(res.text || '');
+      const text = res.text || '';
+      setOcrText(text);
       setActiveTab('text');
+      if (!draftProblemId) {
+        const id = addProblem({
+          name: name.trim() || '未命名题目',
+          imageDataUrl,
+          ocrText: text,
+          commands: '',
+          refineHistory: [],
+          ocrProvider,
+          llmProvider,
+          activeTab: 'text',
+        });
+        setDraftProblemId(id);
+      } else {
+        updateProblem(draftProblemId, { ocrText: text });
+      }
       setLog(`OCR 完成（${res.provider}），请检查题目文字后点击生成。`);
     } catch (e) {
       setLog('识别失败：' + e.message);
@@ -98,20 +115,30 @@ export default function NewProblemModal() {
     setStatus({ text: '正在生成指令...', color: '#555555' });
     setLog(`正在用 ${llmProvider} 生成 GeoGebra 指令...`);
     try {
+      let problemId = draftProblemId;
+      if (!problemId) {
+        problemId = addProblem({
+          name: name.trim() || '未命名题目',
+          imageDataUrl,
+          ocrText: text,
+          commands: '',
+          refineHistory: [],
+          ocrProvider,
+          llmProvider,
+          activeTab: 'text',
+        });
+        setDraftProblemId(problemId);
+      }
       const res = await api.extractCommands(text, llmProvider, abortRef.current.signal);
       const newCommands = (res.commands || []).join('\n');
-      const problemId = addProblem({
-        name: name.trim(),
-        imageDataUrl,
-        ocrText: text,
+      updateProblem(problemId, {
+        name: name.trim() || '未命名题目',
         commands: newCommands,
+        activeTab: 'refine',
         refineHistory: [
           { role: 'kimi', text: `首次生成 ${res.commands?.length || 0} 条指令。你可以输入调整说明。` }
         ],
-        ocrProvider,
-        llmProvider,
       });
-      updateProblem(problemId, { activeTab: 'refine' });
       setStatus({ text: '生成完成', color: '#333333' });
       setLog(`生成完成，使用 ${res.provider} 生成 ${res.commands?.length || 0} 条指令。`);
       closeModal();

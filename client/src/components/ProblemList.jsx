@@ -34,9 +34,6 @@ export default function ProblemList() {
             </div>
             <div className="problem-info">
               <p className="problem-name">{problem.name || '未命名题目'}</p>
-              <p className="problem-meta">
-                {problem.commands ? '已生成' : '待生成'} · {problem.ocrProvider} / {problem.llmProvider}
-              </p>
             </div>
             <button
               className="problem-delete"
