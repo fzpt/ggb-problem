@@ -54,10 +54,10 @@ export default function SessionPanel() {
 
  const sendRefine = async () => {
    const instruction = refineInput.trim();
-   const text = ocrText.trim();
+   const text = ocrText.trim() || '（无原始题目文字）';
    console.log('[sendRefine] clicked', { instruction: !!instruction, text: !!text, llmProvider, refining });
-   if (!instruction || !text) {
-     setLog(!instruction ? '请输入调整说明。' : '缺少题目文字，无法发送调整请求。');
+   if (!instruction) {
+     setLog('请输入调整说明。');
      return;
    }
    const currentCommands = commands;
@@ -247,11 +247,12 @@ export default function SessionPanel() {
               {llmProvider === 'kimi' ? '发送给 Kimi' : '发送调整说明'}
             </button>
           )}
-        </div>
-        <p className="hint">
-          写法示例：<code>A=(0,0)</code>、<code>Segment(A,B)</code>、<code>Circle(A,2)</code>。空行和以 <code>//</code> 开头的注释会被忽略。
-        </p>
-      </div>
+       </div>
+       <p className="hint">
+         写法示例：<code>A=(0,0)</code>、<code>Segment(A,B)</code>、<code>Circle(A,2)</code>。空行和以 <code>//</code> 开头的注释会被忽略。
+       </p>
+       <div className="log">{log}</div>
+     </div>
     </div>
   );
 }
