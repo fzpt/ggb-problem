@@ -73,6 +73,14 @@ function providerHint(providerType, providerName) {
   return '';
 }
 
+function cancelOnClientDisconnect(req, res, provider) {
+  req.on('close', () => {
+    if (req.destroyed && !res.headersSent) {
+      try { cancelCurrentRequest(provider); } catch {}
+    }
+  });
+}
+
 async function handleOcr(req, res) {
   try {
     const raw = await readBody(req);
@@ -82,6 +90,7 @@ async function handleOcr(req, res) {
     }
     const base64 = parseImageDataUrl(body);
     const provider = body.provider || config.ocr.provider;
+    cancelOnClientDisconnect(req, res, provider);
     const result = await extractTextFromImage(base64, provider, body.options || {});
     sendJson(res, 200, { provider, text: result.text });
   } catch (error) {
@@ -108,6 +117,7 @@ async function handleRefine(req, res) {
       return sendJson(res, 400, { error: 'Missing or invalid currentCommands field.' });
     }
     const provider = body.provider || config.llm.provider;
+    cancelOnClientDisconnect(req, res, provider);
     const refined = await refineGeometryCommands(
       body.text,
       body.currentCommands,
@@ -139,6 +149,7 @@ async function handleExtract(req, res) {
       return sendJson(res, 400, { error: 'Missing or invalid text field.' });
     }
     const provider = body.provider || config.llm.provider;
+    cancelOnClientDisconnect(req, res, provider);
     const extracted = await extractGeometryFromText(body.text, provider, body.options || {});
     const commands = extracted.commands || generateCommands(extracted.geometry);
 
