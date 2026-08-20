@@ -1,40 +1,77 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const AppContext = createContext(null);
 
+function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = {}) {
+  return {
+    id,
+    name,
+    imageDataUrl: null,
+    ocrText: '',
+    commands: '',
+    refineHistory: [],
+    refineInput: '',
+    activeTab: 'image',
+    ocrProvider: 'mock',
+    llmProvider: 'mock',
+  };
+}
+
 export function AppProvider({ children }) {
-  const [imageDataUrl, setImageDataUrl] = useState(null);
-  const [ocrText, setOcrText] = useState('');
-  const [commands, setCommands] = useState('');
-  const [refineHistory, setRefineHistory] = useState([]);
-  const [activeTab, setActiveTab] = useState('image');
-  const [ocrProvider, setOcrProvider] = useState('mock');
-  const [llmProvider, setLlmProvider] = useState('mock');
-  const [status, setStatus] = useState({ text: '准备就绪', color: '#d8a93f' });
+  const [problems, setProblems] = useState([]);
+  const [activeProblemId, setActiveProblemId] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [status, setStatus] = useState({ text: '准备就绪', color: '#333333' });
   const [log, setLog] = useState('');
 
-  const reset = useCallback(() => {
-    setImageDataUrl(null);
-    setOcrText('');
-    setCommands('');
-    setRefineHistory([]);
-    setActiveTab('image');
-    setLog('');
-    setStatus({ text: '准备就绪', color: '#d8a93f' });
+  const activeProblem = useMemo(() =>
+    problems.find(p => p.id === activeProblemId) || null,
+  [problems, activeProblemId]);
+
+  const addProblem = useCallback((initial = {}) => {
+    const problem = createProblem(initial);
+    setProblems(prev => [...prev, problem]);
+    setActiveProblemId(problem.id);
+    return problem.id;
   }, []);
+
+  const updateProblem = useCallback((id, updates) => {
+    setProblems(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+  }, []);
+
+  const deleteProblem = useCallback((id) => {
+    setProblems(prev => {
+      const next = prev.filter(p => p.id !== id);
+      if (activeProblemId === id) {
+        setActiveProblemId(next.length ? next[0].id : null);
+      }
+      return next;
+    });
+  }, [activeProblemId]);
+
+  const selectProblem = useCallback((id) => {
+    setActiveProblemId(id);
+  }, []);
+
+  const openModal = useCallback(() => setIsModalOpen(true), []);
+  const closeModal = useCallback(() => setIsModalOpen(false), []);
 
   return (
     <AppContext.Provider value={{
-      imageDataUrl, setImageDataUrl,
-      ocrText, setOcrText,
-      commands, setCommands,
-      refineHistory, setRefineHistory,
-      activeTab, setActiveTab,
-      ocrProvider, setOcrProvider,
-      llmProvider, setLlmProvider,
-      status, setStatus,
-      log, setLog,
-      reset,
+      problems,
+      activeProblemId,
+      activeProblem,
+      isModalOpen,
+      status,
+      log,
+      addProblem,
+      updateProblem,
+      deleteProblem,
+      selectProblem,
+      openModal,
+      closeModal,
+      setStatus,
+      setLog,
     }}>
       {children}
     </AppContext.Provider>

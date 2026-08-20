@@ -223,13 +223,17 @@ function extractFromText(text, options = {}) {
 
 
 function callRefineFromText(text, currentCommands, history, options = {}) {
-  const apiKey = options.apiKey || config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
-  const historyText = (history || []).map(h => `User: ${h.user}\nKimi:\n${(h.response || []).join('\n')}`).join('\n\n');
-  const messages = [
+ const apiKey = options.apiKey || config.llm.kimi.apiKey;
+ if (!apiKey) {
+   return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+ }
+ const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const historyText = (history || []).map(h => {
+    const role = h.role || (h.user ? 'user' : 'kimi');
+    const textPart = h.text || h.user || (Array.isArray(h.response) ? h.response.join('\n') : h.response || '');
+    return `${role === 'user' ? 'User' : 'Kimi'}: ${textPart}`;
+  }).join('\n\n');
+ const messages = [
     { role: 'system', content: SYSTEM_PROMPT_REFINE },
     { role: 'user', content: `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}` }
   ];

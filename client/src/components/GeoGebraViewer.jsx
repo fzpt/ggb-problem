@@ -3,12 +3,13 @@ import { useApp } from '../store/AppContext';
 
 export default function GeoGebraViewer() {
   const containerRef = useRef(null);
-  const appletRef = useRef(null);
   const [ready, setReady] = useState(false);
-  const { commands, setStatus, setLog } = useApp();
+  const { activeProblem, setStatus, setLog } = useApp();
+
+  const commands = activeProblem?.commands || '';
 
   useEffect(() => {
-    if (window.ggbApplet || appletRef.current) return;
+    if (window.ggbApplet || document.getElementById('ggb-element')?.dataset.loaded) return;
 
     const script = document.createElement('script');
     script.src = 'https://www.geogebra.org/apps/deployggb.js';
@@ -20,7 +21,7 @@ export default function GeoGebraViewer() {
         id: 'ggbApplet',
         appName: 'geometry',
         width: Math.max(320, Math.floor(rect.width)),
-        height: Math.max(420, Math.floor(rect.height)),
+        height: Math.max(320, Math.floor(rect.height)),
         showToolBar: true,
         showAlgebraInput: true,
         showMenuBar: false,
@@ -28,15 +29,14 @@ export default function GeoGebraViewer() {
         enableShiftDragZoom: true,
         useBrowserForJS: false,
         appletOnLoad: () => {
-          appletRef.current = window.ggbApplet;
           setReady(true);
           setStatus({ text: 'GeoGebra 已就绪', color: '#333333' });
-          setLog('GeoGebra 已加载完成，可以执行指令。');
+          setLog('GeoGebra 加载完成，可以执行指令。');
         },
       };
       const applet = new window.GGBApplet(params, true);
       applet.inject(containerRef.current.id);
-      appletRef.current = applet;
+      containerRef.current.dataset.loaded = 'true';
     };
     script.onerror = () => {
       setStatus({ text: 'GeoGebra 加载失败', color: '#555555' });
@@ -45,20 +45,21 @@ export default function GeoGebraViewer() {
     document.head.appendChild(script);
   }, [setStatus, setLog]);
 
-  // 响应式：容器尺寸变化时同步到 GeoGebra
   useEffect(() => {
     if (!ready || !window.ggbApplet || !containerRef.current) return;
 
     const applet = window.ggbApplet;
     const resize = () => {
       const rect = containerRef.current.getBoundingClientRect();
-      applet.setSize(Math.max(320, Math.floor(rect.width)), Math.max(420, Math.floor(rect.height)));
+      const w = Math.max(320, Math.floor(rect.width));
+      const h = Math.max(320, Math.floor(rect.height));
+      applet.setSize(w, h);
     };
 
     resize();
     let observer;
     if ('ResizeObserver' in window) {
-      observer = new ResizeObserver(resize);
+      observer = new ResizeObserver(() => resize());
       observer.observe(containerRef.current);
     } else {
       window.addEventListener('resize', resize);
@@ -97,8 +98,8 @@ export default function GeoGebraViewer() {
   }, [commands, ready, setLog]);
 
   return (
-    <div className="card flex flex-col h-full min-h-[620px]">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-black/10 bg-gradient-to-r from-moss/10 to-gold/10">
+    <div className="geo-viewer card">
+      <div className="geo-viewer-head">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full border border-black/10 bg-[#e5e5e5] shadow-inner" />
           <span className="text-sm font-bold tracking-widest text-ink uppercase">Geometry View</span>
@@ -110,14 +111,14 @@ export default function GeoGebraViewer() {
           重置视图
         </button>
       </div>
-      <div className="flex-1 p-4 bg-[#fffaf0]/50 relative">
+      <div className="geo-viewer-body">
         <div
           ref={containerRef}
           id="ggb-element"
-          className="w-full h-full min-h-[540px] rounded-lg overflow-hidden bg-[#fffdf8] shadow-inner"
+          className="geo-applet"
         />
         {!ready && (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="geo-loading">
             <div className="text-center text-muted">
               <p>正在加载 GeoGebra Geometry</p>
               <p className="text-sm opacity-70">首次打开需要从 geogebra.org 加载嵌入脚本</p>

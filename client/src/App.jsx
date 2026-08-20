@@ -1,21 +1,19 @@
-import Header from './components/Header';
-import UploadCard from './components/UploadCard';
-import EditorCard from './components/EditorCard';
+import ProblemList from './components/ProblemList';
 import GeoGebraViewer from './components/GeoGebraViewer';
+import SessionPanel from './components/SessionPanel';
+import NewProblemModal from './components/NewProblemModal';
+import { useApp } from './store/AppContext';
 
 function App() {
+  const { isModalOpen } = useApp();
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
-      <main className="flex-1 workspace">
-        <div className="left-column">
-          <UploadCard />
-        </div>
-        <div className="right-column">
-          <EditorCard />
-          <GeoGebraViewer />
-        </div>
+    <div className="app-shell">
+      <ProblemList />
+      <main className="main-area">
+        <GeoGebraViewer />
+        <SessionPanel />
       </main>
+      {isModalOpen && <NewProblemModal />}
     </div>
   );
 }
