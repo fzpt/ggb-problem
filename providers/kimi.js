@@ -71,8 +71,52 @@ Rules:
 6. Use simple coordinates. Do not try to satisfy every constraint exactly; aim for a clear, approximate diagram.
 7. If the problem is complex, include only the main points and connections, and add a comment line starting with // for anything omitted.`;
 
-let pendingPromise = null;
 let currentRequest = null;
+
+// Serialize Kimi calls and retry on concurrency/rate-limit errors
+const requestQueue = [];
+let processingQueue = false;
+
+function enqueue(fn) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ fn, resolve, reject });
+    processQueue();
+  });
+}
+
+async function processQueue() {
+  if (processingQueue) return;
+  processingQueue = true;
+  while (requestQueue.length) {
+    const job = requestQueue.shift();
+    try {
+      const result = await runWithRetry(job.fn);
+      job.resolve(result);
+    } catch (e) {
+      job.reject(e);
+    }
+  }
+  processingQueue = false;
+}
+
+function isRetryableError(error) {
+  const msg = (error && error.message || '').toLowerCase();
+  return msg.includes('concurrency') || msg.includes('rate limit') || msg.includes('try again') || msg.includes('timed out');
+}
+
+async function runWithRetry(fn, retries = 3, delayMs = 1500) {
+  let lastError;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (!isRetryableError(e) || i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastError;
+}
 
 function callKimi(apiKey, model, messages) {
   return new Promise((resolve, reject) => {
@@ -120,7 +164,7 @@ function callKimi(apiKey, model, messages) {
         reject(err);
       }
     });
-    currentRequest.setTimeout(300000, () => reject(new Error('Kimi request timed out')));
+    currentRequest.setTimeout(120000, () => reject(new Error('Kimi request timed out')));
     currentRequest.write(payload);
     currentRequest.end();
   });
@@ -212,13 +256,7 @@ function callExtractFromText(text, options = {}) {
 }
 
 function extractFromText(text, options = {}) {
-  if (pendingPromise) {
-    return Promise.reject(new Error('Another Kimi request is still in progress. Please wait and try again.'));
-  }
-  pendingPromise = callExtractFromText(text, options).finally(() => {
-    pendingPromise = null;
-  });
-  return pendingPromise;
+  return enqueue(() => callExtractFromText(text, options));
 }
 
 
@@ -254,13 +292,7 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
 }
 
 function refineFromText(text, currentCommands, history, options = {}) {
-  if (pendingPromise) {
-    return Promise.reject(new Error('Another Kimi request is still in progress. Please wait and try again.'));
-  }
-  pendingPromise = callRefineFromText(text, currentCommands, history, options).finally(() => {
-    pendingPromise = null;
-  });
-  return pendingPromise;
+  return enqueue(() => callRefineFromText(text, currentCommands, history, options));
 }
 
 module.exports = { extractFromText, refineFromText, cancelCurrentRequest };
