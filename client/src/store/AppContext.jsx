@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { loadState, saveState } from '../lib/db';
 
 const AppContext = createContext(null);
 
@@ -11,45 +12,38 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
     commands: '',
     refineHistory: [],
     refineInput: '',
-   activeTab: 'image',
-   ocrProvider: 'baidu',
-   llmProvider: 'kimi',
- };
+    activeTab: 'image',
+    ocrProvider: 'baidu',
+    llmProvider: 'kimi',
+  };
 }
 
 export function AppProvider({ children }) {
   const [problems, setProblems] = useState([]);
   const [activeProblemId, setActiveProblemId] = useState(null);
- const [drawnProblemId, setDrawnProblemId] = useState(null);
- const [isModalOpen, setIsModalOpen] = useState(false);
- const [status, setStatus] = useState({ text: '准备就绪', color: '#333333' });
- const [log, setLog] = useState('');
+  const [drawnProblemId, setDrawnProblemId] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [status, setStatus] = useState({ text: '准备就绪', color: '#333333' });
+  const [log, setLog] = useState('');
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('ggb-problems-v1');
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.problems)) {
-          setProblems(data.problems);
-          if (data.activeProblemId) setActiveProblemId(data.activeProblemId);
-        }
-      }
-    } catch (e) {
-      console.error('load problems failed', e);
-    }
+    let mounted = true;
+    loadState().then(data => {
+      if (!mounted) return;
+      setProblems(data.problems);
+      if (data.activeProblemId) setActiveProblemId(data.activeProblemId);
+    }).catch(e => console.error('load problems failed', e));
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('ggb-problems-v1', JSON.stringify({ problems, activeProblemId }));
-    } catch (e) {
+    saveState(problems, activeProblemId).catch(e => {
       console.error('save problems failed', e);
-      setLog('本地保存失败：图片可能太大，建议减少题目数量。');
-    }
+      setLog('本地保存失败：' + (e.message || '未知错误'));
+    });
   }, [problems, activeProblemId]);
 
- const activeProblem = useMemo(() =>
+  const activeProblem = useMemo(() =>
     problems.find(p => p.id === activeProblemId) || null,
   [problems, activeProblemId]);
 
