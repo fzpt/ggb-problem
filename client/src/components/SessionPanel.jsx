@@ -19,6 +19,8 @@ export default function SessionPanel() {
     updateProblem,
     setLog,
     setStatus,
+    drawnProblemId,
+    setDrawnProblemId,
   } = useApp();
 
   const [refining, setRefining] = useState(false);
@@ -26,7 +28,8 @@ export default function SessionPanel() {
 
   useEffect(() => {
     setSessionTab(activeProblem?.activeTab === 'text' ? 'text' : 'refine');
-  }, [activeProblem?.activeTab]);
+    setRefining(false);
+  }, [activeProblem?.id]);
 
   if (!activeProblem) {
     return (
@@ -36,7 +39,8 @@ export default function SessionPanel() {
     );
   }
 
-  const { id, name, ocrText, commands, refineHistory, refineInput, llmProvider, activeTab } = activeProblem;
+  const { id, name, ocrText, commands, refineHistory, refineInput, activeTab } = activeProblem;
+  const llmProvider = activeProblem.llmProvider || 'mock';
 
   const setCommands = (value) => updateProblem(id, { commands: value });
   const setRefineInput = (value) => updateProblem(id, { refineInput: value });
@@ -47,27 +51,43 @@ export default function SessionPanel() {
     }
   };
 
-  const appendHistory = (entry) => {
-    setRefineHistory([...refineHistory, entry]);
-  };
-
   const sendRefine = async () => {
     const instruction = refineInput.trim();
     const text = ocrText.trim();
     if (!instruction || !text) return;
     const currentCommands = commands;
-    const history = refineHistory
-      .filter(h => h.role === 'user' || h.role === 'kimi')
-      .map(h => ({ role: h.role, text: h.text }));
-    setRefining(true);
-    appendHistory({ role: 'user', text: instruction });
+    const needsReset = id !== drawnProblemId;
+    let baseHistory = [];
+    if (needsReset) {
+      setDrawnProblemId(id);
+      if (window.ggbApplet) {
+        window.ggbApplet.reset();
+        window.ggbApplet.setAxesVisible(true, true);
+        window.ggbApplet.setGridVisible(true);
+      }
+      setLog('检测到切换题目，已重置绘画并清空 Kimi 会话上下文。');
+    } else {
+      baseHistory = refineHistory
+        .filter(h => h.role === 'user' || h.role === 'kimi')
+        .map(h => ({ role: h.role, text: h.text }));
+    }
+    const userEntry = { role: 'user', text: instruction };
+    const resetEntry = needsReset
+      ? { role: 'system', text: '检测到切换题目，已重置绘画并清空 Kimi 会话上下文。' }
+      : null;
+    const nextHistory = resetEntry
+      ? [...refineHistory, resetEntry, userEntry]
+      : [...refineHistory, userEntry];
+    setRefineHistory(nextHistory);
     setRefineInput('');
+    setRefining(true);
     setLog('正在请 Kimi 根据说明调整指令...');
     setStatus({ text: '正在调整...', color: '#555555' });
     try {
-      const res = await api.refineCommands(text, currentCommands, history, instruction, llmProvider);
+      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider);
       const newCommands = (res.commands || []).join('\n');
-      appendHistory({ role: 'kimi', text: `已调整，生成 ${res.commands?.length || 0} 条指令。` });
+      const kimiEntry = { role: 'kimi', text: `已调整，生成 ${res.commands?.length || 0} 条指令。` };
+      setRefineHistory([...nextHistory, kimiEntry]);
       if (newCommands) {
         setCommands(newCommands);
         setLog('调整完成，已更新 GeoGebra 图形。');
@@ -76,7 +96,7 @@ export default function SessionPanel() {
         setLog('Kimi 没有返回可执行指令。');
       }
     } catch (e) {
-      appendHistory({ role: 'kimi', text: '调整出错：' + e.message });
+      setRefineHistory([...nextHistory, { role: 'kimi', text: '调整出错：' + e.message }]);
       setLog('调整失败：' + e.message);
       setStatus({ text: '调整失败', color: '#555555' });
     } finally {
@@ -205,7 +225,7 @@ export default function SessionPanel() {
             disabled={refining}
           />
           <button className="primary" onClick={sendRefine} disabled={!refineInput.trim() || refining}>
-            {refining ? '调整中…' : '发送给 Kimi'}
+            {refining ? '调整中…' : (llmProvider === 'kimi' ? '发送给 Kimi' : '发送调整说明')}
           </button>
         </div>
         <div className="actions">

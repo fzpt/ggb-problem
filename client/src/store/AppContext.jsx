@@ -20,6 +20,7 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
 export function AppProvider({ children }) {
   const [problems, setProblems] = useState([]);
   const [activeProblemId, setActiveProblemId] = useState(null);
+  const [drawnProblemId, setDrawnProblemId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [status, setStatus] = useState({ text: '准备就绪', color: '#333333' });
   const [log, setLog] = useState('');
@@ -61,6 +62,7 @@ export function AppProvider({ children }) {
       problems,
       activeProblemId,
       activeProblem,
+      drawnProblemId,
       isModalOpen,
       status,
       log,
@@ -72,6 +74,7 @@ export function AppProvider({ children }) {
       closeModal,
       setStatus,
       setLog,
+      setDrawnProblemId,
     }}>
       {children}
     </AppContext.Provider>

@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 export default function GeoGebraViewer() {
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
-  const { activeProblem, setStatus, setLog } = useApp();
+  const { activeProblem, setStatus, setLog, setDrawnProblemId } = useApp();
 
   const commands = activeProblem?.commands || '';
 
@@ -76,11 +76,17 @@ export default function GeoGebraViewer() {
       .split(/\r?\n/)
       .map(l => l.trim())
       .filter(l => l && !l.startsWith('//'));
-    if (lines.length === 0) return;
 
     window.ggbApplet.reset();
     window.ggbApplet.setAxesVisible(true, true);
     window.ggbApplet.setGridVisible(true);
+
+    if (lines.length === 0) {
+      setLog('画布已清空');
+      setDrawnProblemId(activeProblem?.id || null);
+      return;
+    }
+
     const failed = [];
     lines.forEach((cmd) => {
       try {
@@ -95,7 +101,8 @@ export default function GeoGebraViewer() {
     } else {
       setLog('指令执行成功。');
     }
-  }, [commands, ready, setLog]);
+    setDrawnProblemId(activeProblem?.id || null);
+  }, [commands, ready, setLog, activeProblem?.id]);
 
   return (
     <div className="geo-viewer card">
