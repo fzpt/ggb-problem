@@ -4,12 +4,14 @@ import { useApp } from '../store/AppContext';
 export default function GeoGebraViewer() {
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const scriptInsertedRef = useRef(false);
   const { activeProblem, setStatus, setLog, setDrawnProblemId } = useApp();
 
   const commands = activeProblem?.commands || '';
 
   useEffect(() => {
-    if (window.ggbApplet || document.getElementById('ggb-element')?.dataset.loaded) return;
+    if (scriptInsertedRef.current || window.ggbApplet) return;
+    scriptInsertedRef.current = true;
 
     const script = document.createElement('script');
     script.src = 'https://www.geogebra.org/apps/deployggb.js';
