@@ -10,9 +10,10 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
     imageDataUrl: null,
     ocrText: '',
     commands: '',
-    refineHistory: [],
-    refineInput: '',
-    activeTab: 'image',
+   refineHistory: [],
+   refineInput: '',
+   activeTab: 'image',
+   ggbState: '',
     ocrProvider: 'baidu',
     llmProvider: 'kimi',
   };
@@ -28,22 +29,26 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     let mounted = true;
-    loadState().then(data => {
-      if (!mounted) return;
-      setProblems(data.problems);
-      if (data.activeProblemId) setActiveProblemId(data.activeProblemId);
-    }).catch(e => console.error('load problems failed', e));
+   loadState().then(data => {
+     if (!mounted) return;
+     setProblems(data.problems.map(p => ({ ...createProblem(), ...p })));
+     if (data.activeProblemId) setActiveProblemId(data.activeProblemId);
+   }).catch(e => console.error('load problems failed', e));
     return () => { mounted = false; };
   }, []);
 
  useEffect(() => {
    const timer = setTimeout(() => {
-      saveState({ problems, activeProblemId }).catch(e => {
-        console.error('save problems failed', e);
-        setLog('本地保存失败：' + (e.message || '未知错误'));
+      const problemsToSave = problems.map(p => {
+        const { refineHistory, refineInput, ...rest } = p;
+        return rest;
       });
-    }, 800);
-    return () => clearTimeout(timer);
+      saveState({ problems: problemsToSave, activeProblemId }).catch(e => {
+       console.error('save problems failed', e);
+        setLog('本地保存失败：' + (e.message || '未知错误'));
+     });
+   }, 800);
+   return () => clearTimeout(timer);
  }, [problems, activeProblemId]);
 
   const activeProblem = useMemo(() =>

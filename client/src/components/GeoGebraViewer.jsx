@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 
 export default function GeoGebraViewer() {
-  const containerRef = useRef(null);
-  const [ready, setReady] = useState(false);
-  const scriptInsertedRef = useRef(false);
-  const { activeProblem, setStatus, setLog, setDrawnProblemId } = useApp();
+ const containerRef = useRef(null);
+ const [ready, setReady] = useState(false);
+ const scriptInsertedRef = useRef(false);
+  const { activeProblem, updateProblem, setStatus, setLog, setDrawnProblemId } = useApp();
+  const prevIdRef = useRef(null);
 
   const commands = activeProblem?.commands || '';
 
@@ -110,37 +111,78 @@ export default function GeoGebraViewer() {
 
   useEffect(() => {
     if (!ready || !window.ggbApplet) return;
-    const lines = commands
-      .split(/\r?\n/)
-      .map(l => l.trim())
-      .filter(l => l && !l.startsWith('//'));
+    const currentId = activeProblem?.id || null;
+    const currentGgbState = activeProblem?.ggbState || '';
+
+    // 切换题目时，先保存当前图的状态到上一个题目
+    if (prevIdRef.current && prevIdRef.current !== currentId) {
+      try {
+        const xml = window.ggbApplet.getXML();
+        if (xml) {
+          updateProblem(prevIdRef.current, { ggbState: xml });
+        }
+      } catch (e) {
+        console.error('save ggb state on switch failed', e);
+      }
+    }
 
     window.ggbApplet.reset();
     window.ggbApplet.setAxesVisible(true, true);
     window.ggbApplet.setGridVisible(true);
 
-    if (lines.length === 0) {
-      setLog('画布已清空');
-      setDrawnProblemId(activeProblem?.id || null);
-      return;
+    if (currentId && currentId !== prevIdRef.current && currentGgbState.trim()) {
+      try {
+        window.ggbApplet.setXML(currentGgbState);
+        setLog('已恢复上次手动调整的图形');
+        setDrawnProblemId(currentId);
+      } catch (e) {
+        setLog('恢复图形失败：' + e.message);
+      }
+    } else {
+      const lines = commands
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('//'));
+
+      if (lines.length === 0) {
+        setLog('画布已清空');
+      } else {
+        const failed = [];
+        lines.forEach((cmd) => {
+          try {
+            const ok = window.ggbApplet.evalCommand(cmd);
+            if (!ok) failed.push(cmd);
+          } catch {
+            failed.push(cmd);
+          }
+        });
+        if (failed.length) {
+          setLog(`以下 ${failed.length} 条指令未成功执行：\n${failed.join('\n')}`);
+        } else {
+          setLog('指令执行成功。');
+        }
+      }
+      setDrawnProblemId(currentId);
     }
 
-    const failed = [];
-    lines.forEach((cmd) => {
+   prevIdRef.current = currentId;
+  }, [commands, ready, setLog, activeProblem?.id, updateProblem]);
+
+  // 每 3 秒自动保存一次当前 GeoGebra 状态
+  useEffect(() => {
+    if (!ready || !window.ggbApplet || !activeProblem) return;
+    const id = setInterval(() => {
       try {
-        const ok = window.ggbApplet.evalCommand(cmd);
-        if (!ok) failed.push(cmd);
-      } catch {
-        failed.push(cmd);
+        const xml = window.ggbApplet.getXML();
+        if (xml && xml !== activeProblem.ggbState) {
+          updateProblem(activeProblem.id, { ggbState: xml });
+        }
+      } catch (e) {
+        console.error('auto save ggb state failed', e);
       }
-    });
-    if (failed.length) {
-      setLog(`以下 ${failed.length} 条指令未成功执行：\n${failed.join('\n')}`);
-    } else {
-      setLog('指令执行成功。');
-    }
-    setDrawnProblemId(activeProblem?.id || null);
-  }, [commands, ready, setLog, activeProblem?.id]);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [ready, activeProblem?.id]);
 
   return (
     <div className="geo-viewer card">
