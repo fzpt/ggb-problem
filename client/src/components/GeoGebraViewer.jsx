@@ -47,32 +47,37 @@ export default function GeoGebraViewer() {
     document.head.appendChild(script);
   }, [setStatus, setLog]);
 
-useEffect(() => {
+  useEffect(() => {
     if (!ready || !window.ggbApplet || !containerRef.current) return;
 
     const applet = window.ggbApplet;
     const wrapper = containerRef.current.parentElement; // .geo-viewer-body
 
-    const resize = () => {
-      if (!wrapper || !containerRef.current) return;
-      const style = getComputedStyle(wrapper);
-      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      const rect = wrapper.getBoundingClientRect();
-      const w = Math.max(320, Math.floor(rect.width - padX));
-      const h = Math.max(320, Math.floor(rect.height - padY));
-      applet.setSize(w, h);
+    const doResize = () => {
+      requestAnimationFrame(() => {
+        if (!wrapper || !containerRef.current) return;
+        const style = getComputedStyle(wrapper);
+        const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+        const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const rect = wrapper.getBoundingClientRect();
+        const w = Math.max(320, Math.floor(rect.width - padX));
+        const h = Math.max(320, Math.floor(rect.height - padY));
+        applet.setSize(w, h);
+      });
     };
 
-    resize();
+    doResize();
+    // 最大化/最小化后 layout 可能延迟，再补一次
+    const delayedResize = () => setTimeout(doResize, 150);
+
     let ro = null;
     if ('ResizeObserver' in window) {
-      ro = new ResizeObserver(() => resize());
+      ro = new ResizeObserver(() => doResize());
       ro.observe(wrapper);
     }
-    const onWindowResize = () => resize();
+    const onWindowResize = () => { doResize(); delayedResize(); };
     window.addEventListener('resize', onWindowResize);
-    const onViewportResize = () => resize();
+    const onViewportResize = () => { doResize(); delayedResize(); };
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', onViewportResize);
     }
