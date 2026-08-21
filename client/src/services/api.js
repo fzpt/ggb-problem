@@ -56,3 +56,22 @@ export function refineCommands(text, currentCommands, history, instruction, prov
 export function cancelRequest() {
   return post('/api/cancel', {});
 }
+
+export async function loadState() {
+  const res = await fetch(`${API_BASE}/api/state`);
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text || `请求失败，状态码 ${res.status}` };
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || text || `请求失败 ${res.status}`);
+  }
+  return data;
+}
+
+export function saveState(state) {
+  return post('/api/state', state);
+}

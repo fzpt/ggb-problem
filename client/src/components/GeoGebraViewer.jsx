@@ -47,11 +47,36 @@ export default function GeoGebraViewer() {
     document.head.appendChild(script);
   }, [setStatus, setLog]);
 
-  useEffect(() => {
+useEffect(() => {
+  if (!ready || !window.ggbApplet || !containerRef.current) return;
+
+  const applet = window.ggbApplet;
+  const resize = () => {
+    const rect = containerRef.current.getBoundingClientRect();
+    const w = Math.max(320, Math.floor(rect.width));
+    const h = Math.max(320, Math.floor(rect.height));
+    applet.setSize(w, h);
+  };
+
+  resize();
+  let observer;
+  if ('ResizeObserver' in window) {
+    observer = new ResizeObserver(() => resize());
+    observer.observe(containerRef.current);
+  } else {
+    window.addEventListener('resize', resize);
+  }
+  return () => {
+    if (observer) observer.disconnect();
+    else window.removeEventListener('resize', resize);
+  };
+}, [ready]);
+ useEffect(() => {
     if (!ready || !window.ggbApplet || !containerRef.current) return;
 
     const applet = window.ggbApplet;
     const resize = () => {
+      if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const w = Math.max(320, Math.floor(rect.width));
       const h = Math.max(320, Math.floor(rect.height));
@@ -59,16 +84,23 @@ export default function GeoGebraViewer() {
     };
 
     resize();
-    let observer;
+    let ro = null;
     if ('ResizeObserver' in window) {
-      observer = new ResizeObserver(() => resize());
-      observer.observe(containerRef.current);
-    } else {
-      window.addEventListener('resize', resize);
+      ro = new ResizeObserver(() => resize());
+      ro.observe(containerRef.current);
+    }
+    const onWindowResize = () => resize();
+    window.addEventListener('resize', onWindowResize);
+    const onViewportResize = () => resize();
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onViewportResize);
     }
     return () => {
-      if (observer) observer.disconnect();
-      else window.removeEventListener('resize', resize);
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', onWindowResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', onViewportResize);
+      }
     };
   }, [ready]);
 

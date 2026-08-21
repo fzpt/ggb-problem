@@ -22,6 +22,25 @@ const { extractTextFromImage, extractGeometryFromText, refineGeometryCommands, g
 
 const root = __dirname;
 
+const statePath = path.join(root, '.state.json');
+
+async function loadState() {
+  try {
+    const raw = await fs.promises.readFile(statePath, 'utf-8');
+    const data = JSON.parse(raw);
+    return {
+      problems: Array.isArray(data.problems) ? data.problems : [],
+      activeProblemId: data.activeProblemId || null,
+    };
+  } catch {
+    return { problems: [], activeProblemId: null };
+  }
+}
+
+async function saveState(data) {
+  await fs.promises.writeFile(statePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -183,6 +202,11 @@ function serveStatic(req, res) {
     res.end('Forbidden');
     return;
   }
+  if (path.basename(filePath).startsWith('.')) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found');
+    return;
+  }
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
@@ -211,6 +235,25 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/api/state') {
+    loadState().then(data => sendJson(res, 200, data)).catch(err => {
+      console.error('[/api/state] load error:', err);
+      sendJson(res, 500, { error: err.message });
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/state') {
+    readBody(req).then(raw => {
+      const body = JSON.parse(raw.toString('utf-8'));
+      return saveState(body).then(() => sendJson(res, 200, { ok: true }));
+    }).catch(err => {
+      console.error('[/api/state] save error:', err);
+      sendJson(res, 500, { error: err.message });
+    });
     return;
   }
 

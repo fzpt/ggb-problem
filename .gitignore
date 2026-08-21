@@ -4,3 +4,5 @@ node_modules/
 .tmp-*.json
 *.log
 __pycache__/
+*.log
+.state.json

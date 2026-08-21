@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import { loadState, saveState } from '../lib/db';
+import { loadState, saveState } from '../services/api';
 
 const AppContext = createContext(null);
 
@@ -36,12 +36,15 @@ export function AppProvider({ children }) {
     return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    saveState(problems, activeProblemId).catch(e => {
-      console.error('save problems failed', e);
-      setLog('本地保存失败：' + (e.message || '未知错误'));
-    });
-  }, [problems, activeProblemId]);
+ useEffect(() => {
+   const timer = setTimeout(() => {
+      saveState({ problems, activeProblemId }).catch(e => {
+        console.error('save problems failed', e);
+        setLog('本地保存失败：' + (e.message || '未知错误'));
+      });
+    }, 800);
+    return () => clearTimeout(timer);
+ }, [problems, activeProblemId]);
 
   const activeProblem = useMemo(() =>
     problems.find(p => p.id === activeProblemId) || null,
