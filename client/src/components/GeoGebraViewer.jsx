@@ -53,16 +53,24 @@ export default function GeoGebraViewer() {
     const applet = window.ggbApplet;
     const wrapper = containerRef.current.parentElement; // .geo-viewer-body
 
-    const doResize = () => {
-      requestAnimationFrame(() => {
+   const doResize = () => {
+     requestAnimationFrame(() => {
+        if (!window.ggbApplet) return;
         if (!wrapper || !containerRef.current) return;
+        const xmin = window.ggbApplet.getXmin?.();
+        const xmax = window.ggbApplet.getXmax?.();
+        const ymin = window.ggbApplet.getYmin?.();
+        const ymax = window.ggbApplet.getYmax?.();
         const style = getComputedStyle(wrapper);
         const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
         const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
         const rect = wrapper.getBoundingClientRect();
         const w = Math.max(320, Math.floor(rect.width - padX));
         const h = Math.max(320, Math.floor(rect.height - padY));
-        applet.setSize(w, h);
+        window.ggbApplet.setSize(w, h);
+        if (xmin != null && xmax != null && ymin != null && ymax != null) {
+          window.ggbApplet.setCoordSystem(xmin, xmax, ymin, ymax);
+        }
       });
     };
 
