@@ -47,15 +47,20 @@ export default function GeoGebraViewer() {
     document.head.appendChild(script);
   }, [setStatus, setLog]);
 
- useEffect(() => {
+useEffect(() => {
     if (!ready || !window.ggbApplet || !containerRef.current) return;
 
     const applet = window.ggbApplet;
+    const wrapper = containerRef.current.parentElement; // .geo-viewer-body
+
     const resize = () => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const w = Math.max(320, Math.floor(rect.width));
-      const h = Math.max(320, Math.floor(rect.height));
+      if (!wrapper || !containerRef.current) return;
+      const style = getComputedStyle(wrapper);
+      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const rect = wrapper.getBoundingClientRect();
+      const w = Math.max(320, Math.floor(rect.width - padX));
+      const h = Math.max(320, Math.floor(rect.height - padY));
       applet.setSize(w, h);
     };
 
@@ -63,7 +68,7 @@ export default function GeoGebraViewer() {
     let ro = null;
     if ('ResizeObserver' in window) {
       ro = new ResizeObserver(() => resize());
-      ro.observe(containerRef.current);
+      ro.observe(wrapper);
     }
     const onWindowResize = () => resize();
     window.addEventListener('resize', onWindowResize);
