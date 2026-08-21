@@ -67,23 +67,33 @@ export default function GeoGebraViewer() {
     };
 
     doResize();
-    // 最大化/最小化后 layout 可能延迟，再补一次
-    const delayedResize = () => setTimeout(doResize, 150);
+    // 最大化/最小化后 layout 可能延迟，多补几次
+    const scheduleResizes = () => [100, 300, 600].map(ms => setTimeout(doResize, ms));
+    let timers = [];
 
     let ro = null;
     if ('ResizeObserver' in window) {
       ro = new ResizeObserver(() => doResize());
       ro.observe(wrapper);
     }
-    const onWindowResize = () => { doResize(); delayedResize(); };
+    const onWindowResize = () => {
+      doResize();
+      timers.forEach(clearTimeout);
+      timers = scheduleResizes();
+    };
     window.addEventListener('resize', onWindowResize);
-    const onViewportResize = () => { doResize(); delayedResize(); };
+    const onViewportResize = () => {
+      doResize();
+      timers.forEach(clearTimeout);
+      timers = scheduleResizes();
+    };
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', onViewportResize);
     }
     return () => {
       if (ro) ro.disconnect();
       window.removeEventListener('resize', onWindowResize);
+      timers.forEach(clearTimeout);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', onViewportResize);
       }
