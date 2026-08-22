@@ -2,17 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 
 export default function GeoGebraViewer() {
- const containerRef = useRef(null);
- const [ready, setReady] = useState(false);
- const scriptInsertedRef = useRef(false);
-  const { activeProblem, updateProblem, setStatus, setLog, setDrawnProblemId } = useApp();
+const containerRef = useRef(null);
+const [ready, setReady] = useState(false);
+ const { activeProblem, updateProblem, setStatus, setLog, setDrawnProblemId } = useApp();
   const prevIdRef = useRef(null);
 
   const commands = activeProblem?.commands || '';
 
-  useEffect(() => {
-    if (scriptInsertedRef.current || window.ggbApplet) return;
-    scriptInsertedRef.current = true;
+ useEffect(() => {
+   if (window.__ggbScriptLoaded || window.ggbApplet) return;
+   window.__ggbScriptLoaded = true;
 
     const script = document.createElement('script');
     script.src = 'https://www.geogebra.org/apps/deployggb.js';

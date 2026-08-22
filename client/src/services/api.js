@@ -1,4 +1,4 @@
-const API_BASE = '';
+﻿const API_BASE = '';
 const DEFAULT_TIMEOUT = 120000;
 
 function combineSignals(s1, s2) {
@@ -23,6 +23,7 @@ async function post(path, body, signal) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      credentials: 'include',
       ...combined,
     });
     const text = await res.text();
@@ -58,7 +59,7 @@ export function cancelRequest() {
 }
 
 export async function loadState() {
-  const res = await fetch(`${API_BASE}/api/state`);
+  const res = await fetch(`${API_BASE}/api/state`, { credentials: 'include' });
   const text = await res.text();
   let data;
   try {
@@ -74,4 +75,31 @@ export async function loadState() {
 
 export function saveState(state) {
   return post('/api/state', state);
+}
+
+export function register(email, password) {
+  return post('/api/auth/register', { email, password });
+}
+
+export function login(email, password) {
+  return post('/api/auth/login', { email, password });
+}
+
+export function logout() {
+  return post('/api/auth/logout', {});
+}
+
+export async function me() {
+  const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text || `请求失败，状态码 ${res.status}` };
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || text || `请求失败 ${res.status}`);
+  }
+  return data;
 }

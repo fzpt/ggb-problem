@@ -1,19 +1,26 @@
-import { useApp } from '../store/AppContext';
+﻿import { useApp } from '../store/AppContext';
 
 export default function ProblemList() {
   const {
+    user,
     problems,
     activeProblemId,
     selectProblem,
     openModal,
     deleteProblem,
+    logout,
   } = useApp();
 
   return (
     <aside className="problem-list">
       <div className="problem-list-head">
         <span className="problem-list-title">题目列表</span>
-        <button className="primary" onClick={openModal}>+ New</button>
+        <div className="flex items-center gap-2">
+          <button className="primary" onClick={openModal}>+ New</button>
+          {user && (
+            <button onClick={logout} title={`退出 ${user.email}`}>退出</button>
+          )}
+        </div>
       </div>
       <div className="problem-list-body">
         {problems.length === 0 && (
