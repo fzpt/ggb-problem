@@ -186,7 +186,9 @@ app.post('/api/extract', requireAuth, async (req, res, next) => {
     if (!text) {
       return res.status(400).json({ error: 'Text is required' });
     }
-    const result = await providers.extractGeometryFromText(text, provider, options);
+    const opts = options || {};
+    opts.userId = req.userId;
+    const result = await providers.extractGeometryFromText(text, provider, opts);
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {
     next(err);
@@ -205,7 +207,7 @@ app.post('/api/refine', requireAuth, async (req, res, next) => {
       currentCommands,
       history,
       provider,
-      { instruction }
+      { instruction, userId: req.userId }
     );
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {
@@ -217,7 +219,7 @@ app.post('/api/refine', requireAuth, async (req, res, next) => {
 app.post('/api/cancel', requireAuth, async (req, res, next) => {
   try {
     const { provider } = req.body || {};
-    const cancelled = providers.cancelCurrentRequest(provider);
+    const cancelled = providers.cancelCurrentRequest(provider, { userId: req.userId });
     res.json({ cancelled });
   } catch (err) {
     next(err);

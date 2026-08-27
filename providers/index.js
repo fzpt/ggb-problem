@@ -42,10 +42,10 @@ function refineGeometryCommands(text, currentCommands, history, providerName, op
   }
   return provider.refineFromText(text, currentCommands, history, options);
 }
-function cancelCurrentRequest(providerName) {
+function cancelCurrentRequest(providerName, options = {}) {
   const name = providerName || config.llm.provider;
   if (name === 'kimi') {
-    return cancelKimiRequest();
+    return cancelKimiRequest(options.userId);
   }
   return false;
 }

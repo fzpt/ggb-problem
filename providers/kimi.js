@@ -22,7 +22,7 @@ Required output schema (exact field names):
       {"name": "c1", "center": "O", "radiusPoint": "A", "label": "c1"}
     ],
     "angles": [
-      {"name": "alpha", "vertex": "A", "sides": ["AB", "AC"], "value": 60, "label": "60°"}
+      {"name": "alpha", "vertex": "A", "sides": ["AB", "AC"], "value": 60, "label": "60掳"}
     ],
     "polygons": [
       {"name": "tri1", "vertices": ["A", "B", "C"], "label": "ABC"}
@@ -45,7 +45,7 @@ Rules:
 4. Use uppercase letters for points, lowercase/short names for segments/lines/circles/angles/polygons.
 5. The "from" and "to" of a segment must be existing point names.
 6. The "sides" of an angle are two segment names that share the vertex.
-7. "AB=5cm" means length 5. "∠A=60°" means angle at A equals 60. "垂直" = perpendicular. "平行" = parallel. "⊙O" = circle centered at O.
+7. "AB=5cm" means length 5. "鈭燗=60掳" means angle at A equals 60. "鍨傜洿" = perpendicular. "骞宠" = parallel. "鈯橭" = circle centered at O.
 8. If the problem is underdetermined, choose a simple canonical shape.`;
 
 const SYSTEM_PROMPT_DIRECT = `You are a GeoGebra Geometry command generator. Read a Chinese geometry problem and output a short, valid GeoGebra Geometry script. Output ONLY a JSON object with one field "commands" containing a list of command strings. No markdown fences, no explanations.
@@ -63,7 +63,7 @@ Use commands like:
 - Tangent(P, c1)
 
 Rules:
-1. Fix obvious OCR errors first (e.g. '0' between segments usually means parallel '//' or '∥'; 'AI' should often be 'A'; 'P.2' should be 'P、Q').
+1. Fix obvious OCR errors first (e.g. '0' between segments usually means parallel '//' or '鈭?; 'AI' should often be 'A'; 'P.2' should be 'P銆丵').
 2. Ignore proof/conclusion statements; only construct the geometric figure.
 3. Output only: {"commands": ["A = (0, 0)", "B = (5, 0)", ...]}
 4. First create all points with numeric coordinates.
@@ -73,24 +73,47 @@ Rules:
 8. ONLY use GeoGebra Geometry commands that exist in this list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
 9. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If an element cannot be constructed with these commands, omit it and add a comment starting with //.`;
 
-let currentRequest = null;
+const SYSTEM_PROMPT_REFINE = `You are a GeoGebra Geometry command refiner. Given an original geometry problem, current GeoGebra commands, and a user's adjustment instruction, output a complete revised list of GeoGebra commands as JSON.
 
-// Serialize Kimi calls and retry on concurrency/rate-limit errors
-const requestQueue = [];
-let processingQueue = false;
+Output format: {"commands": ["A = (0,0)", "Segment(A,B)", ...]}
 
-function enqueue(fn) {
+Rules:
+1. Output ONLY valid JSON. No markdown code fences. No explanations.
+2. Keep the original construction intent unless the user explicitly asks to change it.
+3. Apply the user's adjustment instruction precisely.
+4. If the user asks to move a point, update its coordinates.
+5. If the user asks to add an element, append the necessary commands.
+6. Return the FULL revised command list, not just changes.
+7. Use simple numeric coordinates.
+8. Fix any obvious errors in the current commands if they would prevent rendering.
+9. ONLY use GeoGebra Geometry commands from this allowed list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.`;
+
+// Per-user queue and current request tracking.
+const userQueues = new Map();
+
+function getUserQueueState(userId) {
+  const key = userId || 'anonymous';
+  if (!userQueues.has(key)) {
+    userQueues.set(key, { queue: [], processingQueue: false, currentRequest: null });
+  }
+  return userQueues.get(key);
+}
+
+function enqueue(fn, userId) {
+  const state = getUserQueueState(userId);
   return new Promise((resolve, reject) => {
-    requestQueue.push({ fn, resolve, reject });
-    processQueue();
+    state.queue.push({ fn, resolve, reject });
+    processQueue(userId);
   });
 }
 
-async function processQueue() {
-  if (processingQueue) return;
-  processingQueue = true;
-  while (requestQueue.length) {
-    const job = requestQueue.shift();
+async function processQueue(userId) {
+  const state = getUserQueueState(userId);
+  if (state.processingQueue) return;
+  state.processingQueue = true;
+  while (state.queue.length) {
+    const job = state.queue.shift();
     try {
       const result = await runWithRetry(job.fn);
       job.resolve(result);
@@ -98,7 +121,7 @@ async function processQueue() {
       job.reject(e);
     }
   }
-  processingQueue = false;
+  state.processingQueue = false;
 }
 
 function isRetryableError(error) {
@@ -120,14 +143,12 @@ async function runWithRetry(fn, retries = 3, delayMs = 1500) {
   throw lastError;
 }
 
-function callKimi(apiKey, model, messages) {
+function callKimi(apiKey, model, messages, userId) {
+  const state = getUserQueueState(userId);
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({
-      model,
-      messages
-    });
+    const payload = JSON.stringify({ model, messages });
 
-    currentRequest = https.request({
+    state.currentRequest = https.request({
       hostname: 'api.moonshot.cn',
       port: 443,
       path: '/v1/chat/completions',
@@ -141,7 +162,7 @@ function callKimi(apiKey, model, messages) {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
       response.on('end', () => {
-        currentRequest = null;
+        state.currentRequest = null;
         const body = Buffer.concat(chunks).toString('utf-8');
         try {
           const parsed = JSON.parse(body);
@@ -158,24 +179,25 @@ function callKimi(apiKey, model, messages) {
       });
     });
 
-    currentRequest.on('error', (err) => {
-      currentRequest = null;
+    state.currentRequest.on('error', (err) => {
+      state.currentRequest = null;
       if (err.code === 'ECONNRESET') {
         reject(new Error('Kimi request was cancelled.'));
       } else {
         reject(err);
       }
     });
-    currentRequest.setTimeout(120000, () => reject(new Error('Kimi request timed out')));
-    currentRequest.write(payload);
-    currentRequest.end();
+    state.currentRequest.setTimeout(120000, () => reject(new Error('Kimi request timed out')));
+    state.currentRequest.write(payload);
+    state.currentRequest.end();
   });
 }
 
-function cancelCurrentRequest() {
-  if (currentRequest) {
-    currentRequest.destroy();
-    currentRequest = null;
+function cancelCurrentRequest(userId) {
+  const state = getUserQueueState(userId);
+  if (state.currentRequest) {
+    state.currentRequest.destroy();
+    state.currentRequest = null;
     return true;
   }
   return false;
@@ -192,22 +214,6 @@ function cleanJsonResponse(content) {
   return s;
 }
 
-const SYSTEM_PROMPT_REFINE = `You are a GeoGebra Geometry command refiner. Given an original geometry problem, current GeoGebra commands, and a user's adjustment instruction, output a complete revised list of GeoGebra commands as JSON.
-
-Output format: {"commands": ["A = (0,0)", "Segment(A,B)", ...]}
-
-Rules:
-1. Output ONLY valid JSON. No markdown fences. No explanations.
-2. Keep the original construction intent unless the user explicitly asks to change it.
-3. Apply the user's adjustment instruction precisely.
-4. If the user asks to move a point, update its coordinates.
-5. If the user asks to add an element, append the necessary commands.
-6. Return the FULL revised command list, not just changes.
-7. Use simple numeric coordinates.
-8. Fix any obvious errors in the current commands if they would prevent rendering.
-9. ONLY use GeoGebra Geometry commands from this allowed list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
-10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.`;
-
 function callExtractFromText(text, options = {}) {
   const apiKey = options.apiKey || config.llm.kimi.apiKey;
   if (!apiKey) {
@@ -216,13 +222,14 @@ function callExtractFromText(text, options = {}) {
 
   const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
   const mode = options.mode || 'json';
+  const userId = options.userId;
 
   if (mode === 'direct') {
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT_DIRECT },
       { role: 'user', content: `Generate GeoGebra Geometry commands for this problem:\n\n${text}` }
     ];
-    return callKimi(apiKey, model, messages).then(content => {
+    return callKimi(apiKey, model, messages, userId).then(content => {
       let parsed;
       try {
         parsed = JSON.parse(cleanJsonResponse(content));
@@ -243,7 +250,7 @@ function callExtractFromText(text, options = {}) {
     { role: 'user', content: `Convert this geometry problem into the JSON schema:\n\n${text}` }
   ];
 
-  return callKimi(apiKey, model, messages).then(content => {
+  return callKimi(apiKey, model, messages, userId).then(content => {
     let parsed;
     try {
       parsed = JSON.parse(cleanJsonResponse(content));
@@ -260,26 +267,26 @@ function callExtractFromText(text, options = {}) {
 }
 
 function extractFromText(text, options = {}) {
-  return enqueue(() => callExtractFromText(text, options));
+  return enqueue(() => callExtractFromText(text, options), options.userId);
 }
 
-
 function callRefineFromText(text, currentCommands, history, options = {}) {
- const apiKey = options.apiKey || config.llm.kimi.apiKey;
- if (!apiKey) {
-   return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
- }
- const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const apiKey = options.apiKey || config.llm.kimi.apiKey;
+  if (!apiKey) {
+    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+  }
+  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const userId = options.userId;
   const historyText = (history || []).map(h => {
     const role = h.role || (h.user ? 'user' : 'kimi');
     const textPart = h.text || h.user || (Array.isArray(h.response) ? h.response.join('\n') : h.response || '');
     return `${role === 'user' ? 'User' : 'Kimi'}: ${textPart}`;
   }).join('\n\n');
- const messages = [
+  const messages = [
     { role: 'system', content: SYSTEM_PROMPT_REFINE },
     { role: 'user', content: `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}` }
   ];
-  return callKimi(apiKey, model, messages).then(content => {
+  return callKimi(apiKey, model, messages, userId).then(content => {
     let parsed;
     try {
       parsed = JSON.parse(cleanJsonResponse(content));
@@ -296,7 +303,7 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
 }
 
 function refineFromText(text, currentCommands, history, options = {}) {
-  return enqueue(() => callRefineFromText(text, currentCommands, history, options));
+  return enqueue(() => callRefineFromText(text, currentCommands, history, options), options.userId);
 }
 
 module.exports = { extractFromText, refineFromText, cancelCurrentRequest };
