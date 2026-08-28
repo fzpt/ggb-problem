@@ -75,6 +75,28 @@ Rules:
 10. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
 
+const SYSTEM_PROMPT_INCREMENTAL = `You are a GeoGebra Geometry incremental adjustment engine. Your job: given the current objects on a GeoGebra diagram, the original problem, and a user's instruction, output a JSON patch of small operations to apply on the existing diagram. NEVER output a full rebuilt command list. ONLY output operations.
+
+Allowed output format (exactly one top-level key "operations"):
+{"operations": [{"op":"setCoords","name":"A","x":-2,"y":0}, {"op":"evalCommand","cmd":"Segment(A,B)"}, {"op":"deleteObject","name":"oldLine"}, {"op":"setVisible","name":"helper","visible":false}]}
+
+Allowed operations (use only these):
+- setCoords: move an existing point. Requires name, x, y.
+- evalCommand: execute one valid GeoGebra Geometry command. Requires cmd.
+- deleteObject: remove an existing object by name. Requires name.
+- setVisible: toggle visibility. Requires name and visible (boolean).
+
+Allowed GeoGebra Geometry commands inside evalCommand: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+
+Rules:
+1. Output ONLY a JSON object with an "operations" array. No markdown code fences. No explanations. No "commands" key.
+2. Make the smallest possible change that satisfies the instruction.
+3. Do not invent command names; verify every evalCommand starts with an allowed command name.
+4. If the instruction cannot be expressed with operations, output {"operations": []}.
+5. Verify every operation uses one of: setCoords, evalCommand, deleteObject, setVisible.
+6. Verify every evalCommand against the allowed GeoGebra Geometry API list. Replace or omit disallowed commands.
+`;
+
 const SYSTEM_PROMPT_REFINE = `You are a GeoGebra Geometry command refiner. Given an original geometry problem, current GeoGebra commands, and a user's adjustment instruction, output a complete revised list of GeoGebra commands as JSON.
 
 Output format: {"commands": ["A = (0,0)", "Segment(A,B)", ...]}
@@ -281,14 +303,25 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
   }
   const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
   const userId = options.userId;
+  const isIncremental = options.mode === 'incremental' || (Array.isArray(options.currentObjects) && options.currentObjects.length > 0);
   const historyText = (history || []).map(h => {
     const role = h.role || (h.user ? 'user' : 'kimi');
     const textPart = h.text || h.user || (Array.isArray(h.response) ? h.response.join('\n') : h.response || '');
     return `${role === 'user' ? 'User' : 'Kimi'}: ${textPart}`;
   }).join('\n\n');
+
+  let systemPrompt = SYSTEM_PROMPT_REFINE;
+  let userContent = `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}`;
+
+  if (isIncremental) {
+    systemPrompt = SYSTEM_PROMPT_INCREMENTAL;
+    const objectsText = JSON.stringify(options.currentObjects || [], null, 2);
+    userContent = `Original problem:\n${text}\n\nCurrent GeoGebra objects (snapshot):\n${objectsText}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}`;
+  }
+
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT_REFINE },
-    { role: 'user', content: `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}` }
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userContent }
   ];
   return callKimi(apiKey, model, messages, userId).then(content => {
     let parsed;
@@ -297,12 +330,16 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
     } catch (error) {
       throw new Error('Kimi response was not valid JSON: ' + error.message + '\nRaw: ' + content.slice(0, 500));
     }
-    return {
+    const result = {
       text: text,
       geometry: {},
       commands: Array.isArray(parsed.commands) ? parsed.commands : [],
       assumptions: parsed.assumptions || []
     };
+    if (isIncremental) {
+      result.operations = Array.isArray(parsed.operations) ? parsed.operations : [];
+    }
+    return result;
   });
 }
 

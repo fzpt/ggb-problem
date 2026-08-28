@@ -1,6 +1,7 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import * as api from '../services/api';
+import { getCurrentObjects, applyOperations } from '../lib/ggb';
 
 export default function SessionPanel() {
   const {
@@ -75,16 +76,28 @@ export default function SessionPanel() {
     abortRefineRef.current = controller;
     setStatus({ text: '正在调整...', color: '#555555' });
     try {
-      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, controller.signal);
+      const currentObjects = window.ggbApplet ? getCurrentObjects() : [];
+      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, { currentObjects, mode: 'incremental' }, controller.signal);
+      const operations = res.operations || [];
       const newCommands = (res.commands || []).join('\n');
-      const kimiEntry = { role: 'kimi', text: `已调整，生成 ${res.commands?.length || 0} 条指令。` };
+      const hasOperations = Array.isArray(operations) && operations.length > 0;
+      const kimiEntry = { role: 'kimi', text: hasOperations ? `已应用 ${operations.length} 条增量操作。` : `已调整，生成 ${res.commands?.length || 0} 条指令。` };
       setRefineHistory([...nextHistory, kimiEntry]);
-      if (newCommands) {
+
+      if (hasOperations) {
+        const { applied, failed } = applyOperations(operations);
+        if (failed.length) {
+          setLog(`增量操作完成：${applied} 条成功，${failed.length} 条失败。`);
+        } else {
+          setLog(`增量操作完成：${applied} 条已应用。`);
+        }
+        setStatus({ text: '调整完成', color: '#333333' });
+      } else if (newCommands) {
         updateProblem(id, { commands: newCommands });
         setLog('调整完成，已更新 GeoGebra 图形。');
         setStatus({ text: '调整完成', color: '#333333' });
       } else {
-        setLog('Kimi 没有返回可执行指令。');
+        setLog('Kimi 没有返回可执行指令或操作。');
       }
     } catch (e) {
       console.error('[sendRefine] error', e);

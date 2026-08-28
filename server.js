@@ -108,7 +108,7 @@ app.post('/api/extract', requireAuth, async (req, res, next) => {
 // Refine commands
 app.post('/api/refine', requireAuth, async (req, res, next) => {
   try {
-    const { text, currentCommands, history, instruction, provider } = req.body || {};
+    const { text, currentCommands, history, instruction, provider, currentObjects, mode } = req.body || {};
     if (!instruction) {
       return res.status(400).json({ error: 'Instruction is required' });
     }
@@ -117,7 +117,7 @@ app.post('/api/refine', requireAuth, async (req, res, next) => {
       currentCommands,
       history,
       provider,
-      { instruction, userId: req.userId }
+      { instruction, userId: req.userId, currentObjects, mode }
     );
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {

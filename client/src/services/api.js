@@ -64,8 +64,24 @@ export function extractCommands(text, provider = 'kimi', signal) {
   return post('/api/extract', { text, provider, options: { mode: 'direct' } }, signal);
 }
 
-export function refineCommands(text, currentCommands, history, instruction, provider = 'kimi', signal) {
-  return post('/api/refine', { text, currentCommands, history, instruction, provider }, signal);
+export function refineCommands(
+  text,
+  currentCommands,
+  history,
+  instruction,
+  provider = 'kimi',
+  options = {},
+  signal
+) {
+  return post('/api/refine', {
+    text,
+    currentCommands,
+    history,
+    instruction,
+    provider,
+    currentObjects: options.currentObjects,
+    mode: options.mode,
+  }, signal);
 }
 
 export function cancelRequest() {
