@@ -133,6 +133,7 @@ export default function NewProblemModal() {
       const newCommands = (res.commands || []).join('\n');
       updateProblem(problemId, {
         name: name.trim() || '未命名题目',
+        ocrText: text,
         commands: newCommands,
         activeTab: 'refine',
         refineHistory: [

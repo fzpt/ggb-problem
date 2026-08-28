@@ -3,7 +3,7 @@ import { useSession, loadState, saveState, signOut } from '../services/api';
 
 const AppContext = createContext(null);
 
-function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = {}) {
+function createProblem({ id = crypto.randomUUID(), name = '未命名题目', ...rest } = {}) {
   return {
     id,
     name,
@@ -16,6 +16,7 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
     ggbState: '',
     ocrProvider: 'baidu',
     llmProvider: 'kimi',
+    ...rest,
   };
 }
 
