@@ -71,7 +71,9 @@ Rules:
 6. Use simple coordinates. Do not try to satisfy every constraint exactly; aim for a clear, approximate diagram.
 7. If the problem is complex, include only the main points and connections, and add a comment line starting with // for anything omitted.
 8. ONLY use GeoGebra Geometry commands that exist in this list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
-9. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If an element cannot be constructed with these commands, omit it and add a comment starting with //.`;
+ 9. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If an element cannot be constructed with these commands, omit it and add a comment starting with //.
+10. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
+`;
 
 const SYSTEM_PROMPT_REFINE = `You are a GeoGebra Geometry command refiner. Given an original geometry problem, current GeoGebra commands, and a user's adjustment instruction, output a complete revised list of GeoGebra commands as JSON.
 
@@ -87,7 +89,9 @@ Rules:
 7. Use simple numeric coordinates.
 8. Fix any obvious errors in the current commands if they would prevent rendering.
 9. ONLY use GeoGebra Geometry commands from this allowed list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
-10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.`;
+10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.
+11. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
+`;
 
 // Per-user queue and current request tracking.
 const userQueues = new Map();

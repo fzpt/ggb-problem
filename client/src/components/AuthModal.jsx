@@ -1,6 +1,6 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
-import * as api from '../services/api';
+import { signIn, signUp } from '../services/api';
 
 export default function AuthModal() {
   const { onAuth } = useApp();
@@ -19,15 +19,25 @@ export default function AuthModal() {
     }
     setLoading(true);
     try {
-      const res = mode === 'login'
-        ? await api.login(email, password)
-        : await api.register(email, password);
-      onAuth(res.user);
+      if (mode === 'login') {
+        const res = await signIn.email({ email, password });
+        if (res.error) throw new Error(res.error.message || res.error);
+      } else {
+        const res = await signUp.email({ email, password, name: email.split('@')[0] });
+        if (res.error) throw new Error(res.error.message || res.error);
+      }
+      await onAuth();
     } catch (e) {
       setError(e.message || '登录失败');
     } finally {
       setLoading(false);
     }
+  };
+
+  const social = (provider) => {
+    signIn.social({ provider, callbackURL: '/' }).catch(err => {
+      setError(err.message || `${provider} 登录失败`);
+    });
   };
 
   return (
@@ -37,6 +47,30 @@ export default function AuthModal() {
           <h2>{mode === 'login' ? '登录' : '注册'}</h2>
         </div>
         <div className="modal-body">
+          <div className="flex flex-col gap-2 mb-4">
+            <button
+              type="button"
+              className="secondary w-full"
+              onClick={() => social('google')}
+            >
+              使用 Google 登录
+            </button>
+            <button
+              type="button"
+              className="secondary w-full"
+              onClick={() => social('github')}
+            >
+              使用 GitHub 登录
+            </button>
+            <button
+              type="button"
+              className="secondary w-full"
+              onClick={() => social('wechat')}
+            >
+              使用微信登录
+            </button>
+          </div>
+          <hr className="my-4" />
           <form onSubmit={submit} className="flex flex-col gap-2">
             <div className="name-row">
               <label htmlFor="auth-email">邮箱</label>

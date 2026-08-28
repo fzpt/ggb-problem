@@ -1,5 +1,5 @@
-﻿import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import * as api from '../services/api';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { useSession, loadState, saveState, signOut } from '../services/api';
 
 const AppContext = createContext(null);
 
@@ -20,8 +20,10 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目' } = 
 }
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  const { data: session, isPending } = useSession();
+  const user = session?.user || null;
+  const authChecked = !isPending;
+
   const [problems, setProblems] = useState([]);
   const [activeProblemId, setActiveProblemId] = useState(null);
   const [drawnProblemId, setDrawnProblemId] = useState(null);
@@ -30,33 +32,21 @@ export function AppProvider({ children }) {
   const [log, setLog] = useState('');
 
   const loadUserState = useCallback(async () => {
+    if (!user) return;
     try {
-      const data = await api.loadState();
+      const data = await loadState();
       setProblems(data.problems.map(p => ({ ...createProblem(), ...p })));
       setActiveProblemId(data.activeProblemId || null);
     } catch (e) {
       console.error('load problems failed', e);
       setLog('加载题目失败：' + (e.message || '未知错误'));
     }
-  }, []);
+  }, [user]);
 
-  // On mount, check session and load the user's problems.
+  // Load problems when user becomes available.
   useEffect(() => {
-    let mounted = true;
-    api.me()
-      .then(u => {
-        if (!mounted) return;
-        setUser(u);
-        setAuthChecked(true);
-        return loadUserState();
-      })
-      .catch(e => {
-        if (!mounted) return;
-        console.log('not authenticated', e);
-        setAuthChecked(true);
-      });
-    return () => { mounted = false; };
-  }, [loadUserState]);
+    if (user) loadUserState();
+  }, [user, loadUserState]);
 
   // Auto-save state to the server (only when logged in).
   useEffect(() => {
@@ -66,7 +56,7 @@ export function AppProvider({ children }) {
         const { refineHistory, refineInput, ...rest } = p;
         return rest;
       });
-      api.saveState({ problems: problemsToSave, activeProblemId }).catch(e => {
+      saveState({ problems: problemsToSave, activeProblemId }).catch(e => {
         console.error('save problems failed', e);
         setLog('保存失败：' + (e.message || '未知错误'));
       });
@@ -78,14 +68,16 @@ export function AppProvider({ children }) {
     problems.find(p => p.id === activeProblemId) || null,
   [problems, activeProblemId]);
 
-  const onAuth = useCallback((u) => {
-    setUser(u);
-    loadUserState();
+  const onAuth = useCallback(async () => {
+    await loadUserState();
   }, [loadUserState]);
 
   const logout = useCallback(async () => {
-    try { await api.logout(); } catch (e) { console.error(e); }
-    setUser(null);
+    try {
+      await signOut();
+    } catch (e) {
+      console.error(e);
+    }
     setProblems([]);
     setActiveProblemId(null);
     setDrawnProblemId(null);

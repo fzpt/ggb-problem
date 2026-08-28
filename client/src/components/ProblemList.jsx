@@ -17,9 +17,6 @@ export default function ProblemList() {
         <span className="problem-list-title">题目列表</span>
         <div className="flex items-center gap-2">
           <button className="primary" onClick={openModal}>+ New</button>
-          {user && (
-            <button onClick={logout} title={`退出 ${user.email}`}>退出</button>
-          )}
         </div>
       </div>
       <div className="problem-list-body">
@@ -46,7 +43,9 @@ export default function ProblemList() {
               className="problem-delete"
               onClick={(e) => {
                 e.stopPropagation();
-                deleteProblem(problem.id);
+                if (window.confirm(`确定要删除题目“${problem.name || '未命名题目'}”吗？`)) {
+                  deleteProblem(problem.id);
+                }
               }}
               title="删除"
             >
@@ -55,6 +54,19 @@ export default function ProblemList() {
           </div>
         ))}
       </div>
+      {user && (
+        <div className="problem-list-foot">
+          <div className="problem-list-avatar">
+            {user.email?.[0]?.toUpperCase() || '?'}
+          </div>
+          <div className="problem-list-user">
+            <p className="problem-list-email">{user.email}</p>
+          </div>
+          <button className="problem-list-logout" onClick={logout} title="退出登录">
+            退出
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

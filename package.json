@@ -7,16 +7,15 @@
     "concurrently": "^8.2.2"
   },
   "scripts": {
-    "dev": "concurrently \"node server.js\" \"cd client && npm run dev\"",
+    "dev": "concurrently \"node server.js\" \"cd client && npx vite --configLoader native\"",
     "dev:server": "node server.js",
     "start": "node server.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
+    "better-auth": "^1.7.2",
     "better-sqlite3": "^13.0.3",
-    "cookie": "^2.0.1",
-    "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }

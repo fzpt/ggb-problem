@@ -15,19 +15,15 @@ if (fsEnv.existsSync(envPath)) {
 
 const express = require('express');
 const path = require('node:path');
-const cookieParser = require('cookie-parser');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const cookie = require('cookie');
+const { toNodeHandler } = require('better-auth/node');
 
 const config = require('./config');
 const providers = require('./providers');
 const db = require('./db');
+const { auth } = require('./auth');
 
 const app = express();
 const PORT = config.port;
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-const COOKIE_NAME = 'token';
 
 // Enable CORS with credentials echoing the request origin.
 app.use((req, res, next) => {
@@ -45,53 +41,28 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '20mb' }));
-app.use(cookieParser());
+app.use(express.urlencoded({ extended: true }));
 
-function setAuthCookie(res, token) {
-  res.setHeader(
-    'Set-Cookie',
-    cookie.stringifySetCookie({
-      name: COOKIE_NAME,
-      value: token,
-      httpOnly: true,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'lax',
-      path: '/',
-      secure: false,
-    })
-  );
-}
-
-function clearAuthCookie(res) {
-  res.setHeader(
-    'Set-Cookie',
-    cookie.stringifySetCookie({
-      name: COOKIE_NAME,
-      value: '',
-      httpOnly: true,
-      expires: new Date(0),
-      sameSite: 'lax',
-      path: '/',
-      secure: false,
-    })
-  );
-}
-
-function signToken(userId) {
-  return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: '7d' });
-}
-
-function requireAuth(req, res, next) {
-  const token = req.cookies[COOKIE_NAME];
-  if (!token) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
+async function requireAuth(req, res, next) {
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.userId = payload.sub;
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      const v = Array.isArray(value) ? value[0] : value;
+      if (typeof v === 'string') {
+        try { headers.set(key, v); } catch {}
+      }
+    }
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    req.userId = session.user.id;
+    req.user = session.user;
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    console.error('auth middleware error:', err);
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 }
 
@@ -100,69 +71,8 @@ function stripDataUrl(imageDataUrl) {
   return imageDataUrl.replace(/^data:image\/[^;]+;base64,/, '');
 }
 
-// Auth endpoints
-app.post('/api/auth/register', async (req, res, next) => {
-  try {
-    const { email, password } = req.body || {};
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return res.status(400).json({ error: 'A valid email is required' });
-    }
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-    const existing = db.getUserByEmail(email);
-    if (existing) {
-      return res.status(409).json({ error: 'Email already registered' });
-    }
-    const passwordHash = await bcrypt.hash(password, 10);
-    const user = db.createUser(email, passwordHash);
-    const token = signToken(user.id);
-    setAuthCookie(res, token);
-    res.json({ user });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.post('/api/auth/login', async (req, res, next) => {
-  try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-    const user = db.getUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-    const token = signToken(user.id);
-    setAuthCookie(res, token);
-    res.json({ user: { id: user.id, email: user.email } });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  clearAuthCookie(res);
-  res.json({ ok: true });
-});
-
-app.get('/api/auth/me', requireAuth, (req, res, next) => {
-  try {
-    const user = db.getUserById(req.userId);
-    if (!user) {
-      clearAuthCookie(res);
-      return res.status(401).json({ error: 'User not found' });
-    }
-    res.json({ id: user.id, email: user.email });
-  } catch (err) {
-    next(err);
-  }
-});
+// Better Auth endpoints (registration, login, social callbacks, etc.)
+app.use('/api/auth', toNodeHandler(auth));
 
 // OCR
 app.post('/api/ocr', requireAuth, async (req, res, next) => {
@@ -259,6 +169,13 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
-});
+async function start() {
+  const ctx = await auth.$context;
+  await ctx.runMigrations();
+  db.migrateLegacyUsers();
+  app.listen(PORT, () => {
+    console.log(`Server listening on http://localhost:${PORT}`);
+  });
+}
+
+start();

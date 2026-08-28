@@ -1,5 +1,19 @@
-﻿const API_BASE = '';
+import { createAuthClient } from 'better-auth/react';
+
+const API_BASE = '';
 const DEFAULT_TIMEOUT = 120000;
+
+// Better Auth client base URL. Use the current origin so it works both in
+// Vite dev (http://localhost:5173) and production (http://localhost:3000).
+const AUTH_BASE_URL = typeof window !== 'undefined'
+  ? window.location.origin
+  : 'http://localhost:3000';
+
+export const authClient = createAuthClient({
+  baseURL: AUTH_BASE_URL,
+});
+
+export const { signIn, signUp, signOut, useSession } = authClient;
 
 function combineSignals(s1, s2) {
   const controller = new AbortController();
@@ -75,31 +89,4 @@ export async function loadState() {
 
 export function saveState(state) {
   return post('/api/state', state);
-}
-
-export function register(email, password) {
-  return post('/api/auth/register', { email, password });
-}
-
-export function login(email, password) {
-  return post('/api/auth/login', { email, password });
-}
-
-export function logout() {
-  return post('/api/auth/logout', {});
-}
-
-export async function me() {
-  const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { error: text || `请求失败，状态码 ${res.status}` };
-  }
-  if (!res.ok) {
-    throw new Error(data.error || data.message || text || `请求失败 ${res.status}`);
-  }
-  return data;
 }
