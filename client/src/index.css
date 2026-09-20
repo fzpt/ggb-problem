@@ -668,6 +668,161 @@ button.primary:hover {
 
 /* Utility helpers */
 .bg-ink { background: var(--ink); }
+
+/* ---------- 入口页 ---------- */
+.home-entry {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 40px 24px;
+  overflow: auto;
+}
+
+.home-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 320px));
+  gap: 16px;
+  justify-content: center;
+  width: 100%;
+  max-width: 720px;
+}
+
+.home-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.home-card:hover {
+  border-color: var(--ink);
+}
+
+.home-card h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.home-card p {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  flex: 1;
+}
+
+.home-card-link {
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+/* ---------- 指令控制台 ---------- */
+.console-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+
+.console-back {
+  text-decoration: none;
+}
+
+.console-back:hover {
+  color: var(--ink);
+}
+
+.console-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.console-editor {
+  width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  min-height: 0;
+}
+
+.console-textarea {
+  flex: 1;
+  min-height: 200px;
+  resize: none;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.console-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.console-output {
+  min-height: 72px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.console-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .console-body {
+    flex-direction: column;
+  }
+  .console-editor {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
 .border-ink { border-color: var(--ink); }
 
 @media (max-width: 1024px) {

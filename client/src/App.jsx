@@ -1,11 +1,24 @@
-﻿import ProblemList from './components/ProblemList';
+import { useEffect, useState } from 'react';
+import ProblemList from './components/ProblemList';
 import GeoGebraViewer from './components/GeoGebraViewer';
 import SessionPanel from './components/SessionPanel';
 import NewProblemModal from './components/NewProblemModal';
 import AuthModal from './components/AuthModal';
+import HomeEntry from './components/HomeEntry';
+import CommandConsole from './components/CommandConsole';
 import { useApp } from './store/AppContext';
 
-function App() {
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash || '#/');
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash || '#/');
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
+  return hash;
+}
+
+function Workspace() {
   const { isModalOpen, user, authChecked } = useApp();
   return (
     <div className="app-shell">
@@ -16,6 +29,21 @@ function App() {
       </main>
       {isModalOpen && <NewProblemModal />}
       {authChecked && !user && <AuthModal />}
+    </div>
+  );
+}
+
+function App() {
+  const hash = useHashRoute();
+  if (hash === '#/console') {
+    return <CommandConsole />;
+  }
+  if (hash === '#/app') {
+    return <Workspace />;
+  }
+  return (
+    <div className="app-shell">
+      <HomeEntry />
     </div>
   );
 }

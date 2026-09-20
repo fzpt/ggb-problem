@@ -1,5 +1,7 @@
 const https = require('node:https');
 const config = require('../config');
+const ggb = require('../lib/ggb-commands');
+const GG_REFERENCE = ggb.referenceText();
 
 const DEFAULT_MODEL = 'kimi-k2.7-code';
 
@@ -70,7 +72,8 @@ Rules:
 5. Then create segments, lines, circles, polygons, angles.
 6. Use simple coordinates. Do not try to satisfy every constraint exactly; aim for a clear, approximate diagram.
 7. If the problem is complex, include only the main points and connections, and add a comment line starting with // for anything omitted.
-8. ONLY use GeoGebra Geometry commands that exist in this list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+8. ONLY use commands from this verified reference:
+${GG_REFERENCE}
  9. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If an element cannot be constructed with these commands, omit it and add a comment starting with //.
 10. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
@@ -86,7 +89,8 @@ Allowed operations (use only these):
 - deleteObject: remove an existing object by name. Requires name.
 - setVisible: toggle visibility. Requires name and visible (boolean).
 
-Allowed GeoGebra Geometry commands inside evalCommand: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+Commands allowed inside evalCommand (verified official syntax):
+${GG_REFERENCE}
 
 Rules:
 1. Output ONLY a JSON object with an "operations" array. No markdown code fences. No explanations. No "commands" key.
@@ -110,7 +114,8 @@ Rules:
 6. Return the FULL revised command list, not just changes.
 7. Use simple numeric coordinates.
 8. Fix any obvious errors in the current commands if they would prevent rendering.
-9. ONLY use GeoGebra Geometry commands from this allowed list: Point, Midpoint, Segment, Line, Ray, Vector, Polygon, Polyline, Circle, CircleArc, Semicircle, Arc, Sector, Angle, Distance, Length, Slope, PerpendicularBisector, PerpendicularLine, ParallelLine, Tangent, Intersect, Reflect, Rotate, Translate, Dilate, Parabola, Ellipse, Hyperbola, Slider, AngleBisector, Circumcircle, Incircle, Centroid, Orthocenter, Locus.
+9. ONLY use commands from this verified reference:
+${GG_REFERENCE}
 10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.
 11. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
@@ -296,6 +301,24 @@ function extractFromText(text, options = {}) {
   return enqueue(() => callExtractFromText(text, options), options.userId);
 }
 
+function parseJsonContent(content) {
+  let parsed;
+  try {
+    parsed = JSON.parse(cleanJsonResponse(content));
+  } catch (error) {
+    throw new Error('Kimi response was not valid JSON: ' + error.message + '\nRaw: ' + content.slice(0, 500));
+  }
+  return parsed;
+}
+
+function buildCorrectionFeedback(invalid, isIncremental) {
+  const lines = invalid.map((v, i) => (i + 1) + '. ' + JSON.stringify(v.item) + '\n   Reason: ' + v.reason);
+  const kind = isIncremental ? 'operations array' : 'commands array';
+  return 'Some entries in your previous ' + kind + ' are invalid:\n' + lines.join('\n') +
+    '\n\nOutput the complete corrected JSON again. Use ONLY commands from the verified reference. ' +
+    'If an element cannot be expressed with the allowed commands, omit it.';
+}
+
 function callRefineFromText(text, currentCommands, history, options = {}) {
   const apiKey = options.apiKey || config.llm.kimi.apiKey;
   if (!apiKey) {
@@ -323,13 +346,25 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userContent }
   ];
-  return callKimi(apiKey, model, messages, userId).then(content => {
-    let parsed;
-    try {
-      parsed = JSON.parse(cleanJsonResponse(content));
-    } catch (error) {
-      throw new Error('Kimi response was not valid JSON: ' + error.message + '\nRaw: ' + content.slice(0, 500));
+
+  return (async () => {
+    let content = await callKimi(apiKey, model, messages, userId);
+    let parsed = parseJsonContent(content);
+    let validation = isIncremental
+      ? ggb.validateOperations(parsed.operations)
+      : ggb.validateCommands(parsed.commands);
+
+    // Plan 2: deterministic server-side check; feed concrete errors back for one retry.
+    if (validation.invalid.length > 0) {
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, isIncremental) });
+      content = await callKimi(apiKey, model, messages, userId);
+      parsed = parseJsonContent(content);
+      validation = isIncremental
+        ? ggb.validateOperations(parsed.operations)
+        : ggb.validateCommands(parsed.commands);
     }
+
     const result = {
       text: text,
       geometry: {},
@@ -337,10 +372,15 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
       assumptions: parsed.assumptions || []
     };
     if (isIncremental) {
-      result.operations = Array.isArray(parsed.operations) ? parsed.operations : [];
+      result.operations = validation.valid;
+    } else {
+      result.commands = validation.valid;
+    }
+    if (validation.invalid.length > 0) {
+      result.warnings = validation.invalid.map(v => v.reason);
     }
     return result;
-  });
+  })();
 }
 
 function refineFromText(text, currentCommands, history, options = {}) {
