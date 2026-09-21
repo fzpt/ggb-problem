@@ -191,8 +191,12 @@ The "steps" array describes the construction order analysis, one row per constru
 - constraint: the geometric constraint that defines it (equal length, intersection, on segment, etc.)
 
 The "commands" array is a GeoGebra Geometry script that realizes the construction:
-1. First create free points with simple numeric coordinates.
-2. Then dependent points via intersections, rotations, midpoints, etc.
+1. ONLY the initial free points (points with no geometric constraint, e.g. the triangle's vertices) may use numeric coordinates like "A = (0, 0)". Usually just 2-4 free points.
+2. Every OTHER point must be constructed through a geometric CONSTRAINT relationship. NEVER assign precomputed numeric coordinates to a constrained point, and NEVER write computed coordinate values (e.g. "D = (4, 0)", "F = (5.6, 2.77)") — the coordinates must emerge from the construction itself. Use commands such as:
+   - Intersect( <Object>, <Object> ): intersections of lines/segments/rays/circles (e.g. point on a segment, crossing points).
+   - Circle( <Point>, <Segment> ) to transfer a length onto another line, then Intersect: e.g. "D on segment AB with AD = BC" becomes: c1 = Circle(A, Segment(B, C)); D = Intersect(c1, Segment(A, B)).
+   - Midpoint( <Point>, <Point> ), Rotate( <Point>, <Angle>, <Point> ), Point( <Object>, <Parameter> ) for points defined by other relations.
+   Example: "F = intersection of ray DE and segment AC" becomes: r = Ray(D, E); F = Intersect(r, Segment(A, C)).
 3. Then draw the final required segments/lines/circles/polygons.
 4. ONLY use commands from this verified reference:
 ${GG_REFERENCE}
