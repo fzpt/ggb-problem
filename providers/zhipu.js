@@ -1,7 +1,8 @@
 // 智谱 GLM，OpenAI 兼容接口：https://open.bigmodel.cn/api/paas/v4/chat/completions
 const https = require('node:https');
 
-function chat(apiKey, model, messages) {
+// hooks: { setCurrent(req), clearCurrent() } 用于接入每用户取消机制
+function chat(apiKey, model, messages, hooks) {
   if (!apiKey) {
     return Promise.reject(new Error('智谱 API Key 未配置，请在管理后台填写。'));
   }
@@ -21,6 +22,7 @@ function chat(apiKey, model, messages) {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => {
+        if (hooks && hooks.clearCurrent) hooks.clearCurrent();
         const body = Buffer.concat(chunks).toString('utf-8');
         try {
           const parsed = JSON.parse(body);
@@ -36,8 +38,12 @@ function chat(apiKey, model, messages) {
         }
       });
     });
-    request.on('error', (err) => reject(err));
+    request.on('error', (err) => {
+      if (hooks && hooks.clearCurrent) hooks.clearCurrent();
+      reject(err);
+    });
     request.setTimeout(300000, () => request.destroy(new Error('GLM request timed out')));
+    if (hooks && hooks.setCurrent) hooks.setCurrent(request);
     request.write(payload);
     request.end();
   });

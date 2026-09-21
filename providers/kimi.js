@@ -19,8 +19,15 @@ function chatCompletion(messages, options = {}) {
     messages,
   };
   if (model.startsWith('glm')) {
+    const hooks = {
+      setCurrent: (req) => { getUserQueueState(options.userId).currentRequest = req; },
+      clearCurrent: () => {
+        const st = getUserQueueState(options.userId);
+        if (st.currentRequest) st.currentRequest = null;
+      },
+    };
     return zhipu
-      .chat(settings.getSettings().keysZhipu, model, messages)
+      .chat(settings.getSettings().keysZhipu, model, messages, hooks)
       .then((content) => {
         llmLogger.log({ ...logBase, ok: true, response: content, durationMs: Date.now() - startedAt });
         return content;
@@ -341,7 +348,7 @@ function callKimi(apiKey, model, messages, userId) {
 function cancelCurrentRequest(userId) {
   const state = getUserQueueState(userId);
   if (state.currentRequest) {
-    state.currentRequest.destroy(new Error('Kimi request was cancelled.'));
+    state.currentRequest.destroy(new Error('LLM request was cancelled.'));
     state.currentRequest = null;
     return true;
   }
