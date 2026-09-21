@@ -1,9 +1,24 @@
 const https = require('node:https');
 const config = require('../config');
 const ggb = require('../lib/ggb-commands');
+const settings = require('../lib/settings');
+const zhipu = require('./zhipu');
 const GG_REFERENCE = ggb.referenceText();
 
 const DEFAULT_MODEL = 'kimi-k2.7-code';
+
+// 统一出口：按模型 id 分发到 Kimi 或智谱，模型来自管理后台设置
+function chatCompletion(messages, options = {}) {
+  const model = options.model || settings.resolveModelId(options.taskType || 'text');
+  if (model.startsWith('glm')) {
+    return zhipu.chat(settings.getSettings().keysZhipu, model, messages);
+  }
+  const apiKey = config.llm.kimi.apiKey;
+  if (!apiKey) {
+    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+  }
+  return callKimi(apiKey, model, messages, options.userId);
+}
 
 const SYSTEM_PROMPT_JSON = `You are a geometry-to-JSON converter. Your only job is to read a Chinese geometry problem and output a single valid JSON object in the exact schema below. Do not output any other text, explanations, markdown fences, or reasoning.
 
@@ -119,9 +134,6 @@ ${GG_REFERENCE}
 10. Before outputting, verify every command starts with one of the allowed names or is a coordinate assignment like "A = (0, 0)". Do not invent command names. If a command is not in the list, replace it with an equivalent allowed command or omit it and add a comment starting with //.
 11. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
-
-// k2.7-code 是纯文本编码模型，图片理解固定用支持视觉的 k2.6
-const VISION_MODEL = 'kimi-k2.6';
 
 const SYSTEM_PROMPT_IMAGE_ANALYZE = `You are a geometry problem OCR and completion assistant. Analyze the input (a photo of a Chinese geometry problem, or plain problem text) and output a single valid JSON object with exactly two fields:
 
@@ -288,12 +300,7 @@ function cleanJsonResponse(content) {
 }
 
 function callExtractFromText(text, options = {}) {
-  const apiKey = options.apiKey || config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-
-  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const model = options.model || settings.resolveModelId('text');
   const mode = options.mode || 'json';
   const userId = options.userId;
 
@@ -302,7 +309,7 @@ function callExtractFromText(text, options = {}) {
       { role: 'system', content: SYSTEM_PROMPT_DIRECT },
       { role: 'user', content: `Generate GeoGebra Geometry commands for this problem:\n\n${text}` }
     ];
-    return callKimi(apiKey, model, messages, userId).then(content => {
+    return chatCompletion(messages, { model, userId }).then(content => {
       let parsed;
       try {
         parsed = JSON.parse(cleanJsonResponse(content));
@@ -323,7 +330,7 @@ function callExtractFromText(text, options = {}) {
     { role: 'user', content: `Convert this geometry problem into the JSON schema:\n\n${text}` }
   ];
 
-  return callKimi(apiKey, model, messages, userId).then(content => {
+  return chatCompletion(messages, { model, userId }).then(content => {
     let parsed;
     try {
       parsed = JSON.parse(cleanJsonResponse(content));
@@ -362,11 +369,7 @@ function buildCorrectionFeedback(invalid, isIncremental) {
 }
 
 function callRefineFromText(text, currentCommands, history, options = {}) {
-  const apiKey = options.apiKey || config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+    const model = options.model || settings.resolveModelId('text');
   const userId = options.userId;
   const isIncremental = options.mode === 'incremental' || (Array.isArray(options.currentObjects) && options.currentObjects.length > 0);
   const historyText = (history || []).map(h => {
@@ -390,7 +393,7 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
   ];
 
   return (async () => {
-    let content = await callKimi(apiKey, model, messages, userId);
+    let content = await chatCompletion(messages, { model, userId });
     let parsed = parseJsonContent(content);
     let validation = isIncremental
       ? ggb.validateOperations(parsed.operations)
@@ -400,7 +403,7 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
     if (validation.invalid.length > 0) {
       messages.push({ role: 'assistant', content });
       messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, isIncremental) });
-      content = await callKimi(apiKey, model, messages, userId);
+      content = await chatCompletion(messages, { model, userId });
       parsed = parseJsonContent(content);
       validation = isIncremental
         ? ggb.validateOperations(parsed.operations)
@@ -430,11 +433,7 @@ function refineFromText(text, currentCommands, history, options = {}) {
 }
 
 function callAnalyzeImage(base64, options = {}) {
-  const apiKey = options.apiKey || config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-  const model = options.model || VISION_MODEL;
+  const model = options.model || settings.resolveModelId('vision');
   const userId = options.userId;
 
   const content = [];
@@ -456,7 +455,7 @@ function callAnalyzeImage(base64, options = {}) {
     { role: 'user', content }
   ];
 
-  return callKimi(apiKey, model, messages, userId).then(contentText => {
+  return chatCompletion(messages, { model, userId }).then(contentText => {
     const parsed = parseJsonContent(contentText);
     return {
       rawText: parsed.rawText || '',
@@ -470,11 +469,7 @@ function analyzeImage(base64, options = {}) {
 }
 
 function callAnalyzeConstruction(text, options = {}) {
-  const apiKey = options.apiKey || config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const model = options.model || settings.resolveModelId('text');
   const userId = options.userId;
 
   const messages = [
@@ -483,14 +478,14 @@ function callAnalyzeConstruction(text, options = {}) {
   ];
 
   return (async () => {
-    let content = await callKimi(apiKey, model, messages, userId);
+    let content = await chatCompletion(messages, { model, userId });
     let parsed = parseJsonContent(content);
     let validation = ggb.validateCommands(parsed.commands);
 
     if (validation.invalid.length > 0) {
       messages.push({ role: 'assistant', content });
       messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false) });
-      content = await callKimi(apiKey, model, messages, userId);
+      content = await chatCompletion(messages, { model, userId });
       parsed = parseJsonContent(content);
       validation = ggb.validateCommands(parsed.commands);
     }
@@ -520,5 +515,6 @@ module.exports = {
   refineFromText,
   analyzeImage,
   analyzeConstruction,
+  chatCompletion,
   cancelCurrentRequest
 };

@@ -3,6 +3,7 @@ const mockProvider = require('./mock');
 const openaiProvider = require('./openai');
 const baiduProvider = require('./baidu');
 const kimiProvider = require('./kimi');
+const { findModel } = require('../lib/models');
 const { generateCommands } = require('../lib/generate');
 const { cancelCurrentRequest: cancelKimiRequest } = require('./kimi');
 
@@ -67,6 +68,16 @@ function cancelCurrentRequest(providerName, options = {}) {
   return false;
 }
 
+// 管理后台"测试连接"：用指定模型做一次最小对话
+function testModel(modelId) {
+  const m = findModel(modelId);
+  if (!m) {
+    return Promise.reject(new Error('未知模型: ' + modelId));
+  }
+  const messages = [{ role: 'user', content: '回复 ok 即可' }];
+  return kimiProvider.chatCompletion(messages, { model: m.id }).then((reply) => ({ ok: true, reply }));
+}
+
 module.exports = {
   providers,
   extractFromImage,
@@ -74,6 +85,7 @@ module.exports = {
   extractGeometryFromText,
   analyzeImage,
   analyzeConstruction,
+  testModel,
   generateCommands,
   cancelCurrentRequest,
   refineGeometryCommands

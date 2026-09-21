@@ -98,6 +98,36 @@ export function cancelRequest() {
   return post('/api/cancel', {});
 }
 
+// ---------- 管理后台 ----------
+export function getAdminCheck() {
+  return fetch(`${API_BASE}/api/admin/check`, { credentials: 'include' }).then((r) => r.json());
+}
+
+export function getAdminSettings() {
+  return fetch(`${API_BASE}/api/admin/settings`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function putAdminSettings(patch) {
+  return fetch(`${API_BASE}/api/admin/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+    credentials: 'include',
+  }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function testAdminModel(model) {
+  return post('/api/admin/test-model', { model });
+}
+
 export async function loadState() {
   const res = await fetch(`${API_BASE}/api/state`, { credentials: 'include' });
   const text = await res.text();

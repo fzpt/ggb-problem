@@ -1,5 +1,8 @@
 ﻿import { useApp } from '../store/AppContext';
 
+import { useEffect, useState } from 'react';
+import { getAdminCheck } from '../services/api';
+
 export default function ProblemList() {
   const {
     user,
@@ -9,6 +12,12 @@ export default function ProblemList() {
     deleteProblem,
     logout,
   } = useApp();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    getAdminCheck().then((r) => setIsAdmin(Boolean(r.admin))).catch(() => {});
+  }, [user]);
 
   return (
     <aside className="problem-list">
@@ -61,6 +70,15 @@ export default function ProblemList() {
           <div className="problem-list-user">
             <p className="problem-list-email">{user.email}</p>
           </div>
+          {isAdmin && (
+            <button
+              className="problem-list-logout"
+              onClick={() => { window.location.hash = '#/admin'; }}
+              title="管理后台"
+            >
+              管理
+            </button>
+          )}
           <button className="problem-list-logout" onClick={logout} title="退出登录">
             退出
           </button>

@@ -20,6 +20,8 @@ const { toNodeHandler } = require('better-auth/node');
 const config = require('./config');
 const providers = require('./providers');
 const db = require('./db');
+const settings = require('./lib/settings');
+const { MODELS, findModel } = require('./lib/models');
 const { auth } = require('./auth');
 
 const app = express();
@@ -69,6 +71,16 @@ async function requireAuth(req, res, next) {
 function stripDataUrl(imageDataUrl) {
   if (!imageDataUrl) return '';
   return imageDataUrl.replace(/^data:image\/[^;]+;base64,/, '');
+}
+
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, (err) => {
+    if (err) return next(err);
+    if (!settings.isAdminEmail(req.user.email)) {
+      return res.status(403).json({ error: '需要管理员权限' });
+    }
+    next();
+  });
 }
 
 // Better Auth endpoints (registration, login, social callbacks, etc.)
@@ -175,6 +187,70 @@ app.get('/api/state', requireAuth, (req, res, next) => {
   try {
     const state = db.loadState(req.userId);
     res.json(state);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------- 管理后台 ----------
+
+// 登录用户都可查自己的管理员状态（用于显示入口）
+app.get('/api/admin/check', requireAuth, (req, res) => {
+  res.json({ admin: settings.isAdminEmail(req.user.email) });
+});
+
+app.get('/api/admin/settings', requireAdmin, (req, res, next) => {
+  try {
+    const s = settings.getSettings();
+    res.json({
+      visionModel: s.visionModel,
+      textModel: s.textModel,
+      zhipuKeyMasked: settings.maskKey(s.keysZhipu),
+      adminEmails: settings.getAdminEmails(),
+      models: MODELS,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.put('/api/admin/settings', requireAdmin, (req, res, next) => {
+  try {
+    const { visionModel, textModel, zhipuKey, adminEmails } = req.body || {};
+    const patch = {};
+    if (visionModel) {
+      const m = findModel(visionModel);
+      if (!m || !m.vision) {
+        return res.status(400).json({ error: '图片识别模型必须是支持视觉的模型' });
+      }
+      patch.visionModel = visionModel;
+    }
+    if (textModel) {
+      if (!findModel(textModel)) {
+        return res.status(400).json({ error: '未知的文本生成模型: ' + textModel });
+      }
+      patch.textModel = textModel;
+    }
+    if (typeof zhipuKey === 'string' && zhipuKey.trim()) {
+      patch.keysZhipu = zhipuKey.trim() === '__clear__' ? '' : zhipuKey.trim();
+    }
+    if (Array.isArray(adminEmails)) {
+      patch.adminEmails = adminEmails
+        .map((e) => String(e).trim().toLowerCase())
+        .filter(Boolean);
+    }
+    settings.saveSettings(patch);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/admin/test-model', requireAdmin, async (req, res, next) => {
+  try {
+    const { model } = req.body || {};
+    const result = await providers.testModel(model);
+    res.json(result);
   } catch (err) {
     next(err);
   }

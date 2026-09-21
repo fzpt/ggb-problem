@@ -6,6 +6,7 @@ import AuthModal from './components/AuthModal';
 import HomeEntry from './components/HomeEntry';
 import CommandConsole from './components/CommandConsole';
 import ProblemEntry from './components/ProblemEntry';
+import Admin from './components/Admin';
 import { useApp } from './store/AppContext';
 
 function useHashRoute() {
@@ -34,6 +35,9 @@ function Workspace() {
 
 function App() {
   const hash = useHashRoute();
+  if (hash === '#/admin') {
+    return <Admin />;
+  }
   if (hash === '#/entry') {
     return <ProblemEntry />;
   }

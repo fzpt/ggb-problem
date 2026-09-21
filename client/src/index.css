@@ -1049,6 +1049,75 @@ button.primary:hover {
     border-bottom: 1px solid var(--border);
   }
 }
+
+/* ---------- 管理后台 ---------- */
+.admin-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.admin-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.admin-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.admin-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-select,
+.admin-input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.admin-note {
+  font-size: 0.8rem;
+  margin: 0 0 6px;
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.admin-status {
+  font-size: 0.85rem;
+}
 .border-ink { border-color: var(--ink); }
 
 @media (max-width: 1024px) {
