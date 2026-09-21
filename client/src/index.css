@@ -1118,6 +1118,23 @@ button.primary:hover {
 .admin-status {
   font-size: 0.85rem;
 }
+
+.admin-task-table {
+  font-size: 0.8rem;
+}
+
+.admin-task-status {
+  white-space: nowrap;
+}
+
+.admin-task-status.running {
+  font-weight: 600;
+}
+
+.admin-cancel {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+}
 .border-ink { border-color: var(--ink); }
 
 @media (max-width: 1024px) {

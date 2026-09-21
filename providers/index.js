@@ -69,13 +69,17 @@ function cancelCurrentRequest(providerName, options = {}) {
 }
 
 // 管理后台"测试连接"：用指定模型做一次最小对话
-function testModel(modelId) {
+function testModel(modelId, userId) {
   const m = findModel(modelId);
   if (!m) {
     return Promise.reject(new Error('未知模型: ' + modelId));
   }
   const messages = [{ role: 'user', content: '回复 ok 即可' }];
-  return kimiProvider.chatCompletion(messages, { model: m.id }).then((reply) => ({ ok: true, reply }));
+  return kimiProvider.runTask(
+    () => kimiProvider.chatCompletion(messages, { model: m.id }).then((reply) => ({ ok: true, reply })),
+    userId,
+    { type: '连接测试', taskType: m.vision ? 'vision' : 'text', model: m.id }
+  );
 }
 
 module.exports = {
@@ -85,6 +89,7 @@ module.exports = {
   extractGeometryFromText,
   analyzeImage,
   analyzeConstruction,
+  getTaskEvents: () => kimiProvider.getTaskEvents(),
   testModel,
   generateCommands,
   cancelCurrentRequest,

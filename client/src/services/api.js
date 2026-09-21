@@ -128,6 +128,18 @@ export function testAdminModel(model) {
   return post('/api/admin/test-model', { model });
 }
 
+export function getAdminTasks() {
+  return fetch(`${API_BASE}/api/admin/tasks`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function cancelAdminTask(userId) {
+  return post('/api/admin/cancel-task', { userId });
+}
+
 export async function loadState() {
   const res = await fetch(`${API_BASE}/api/state`, { credentials: 'include' });
   const text = await res.text();

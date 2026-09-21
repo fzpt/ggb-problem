@@ -176,6 +176,19 @@ ${GG_REFERENCE}
 
 // Per-user queue and current request tracking.
 const userQueues = new Map();
+// 任务事件环形缓冲，供管理后台查看（新任务在前）
+const taskEvents = [];
+const MAX_TASK_EVENTS = 100;
+let taskSeq = 0;
+
+function pushTaskEvent(task) {
+  taskEvents.unshift(task);
+  if (taskEvents.length > MAX_TASK_EVENTS) taskEvents.pop();
+}
+
+function getTaskEvents() {
+  return taskEvents;
+}
 
 function getUserQueueState(userId) {
   const key = userId || 'anonymous';
@@ -185,10 +198,20 @@ function getUserQueueState(userId) {
   return userQueues.get(key);
 }
 
-function enqueue(fn, userId) {
+function enqueue(fn, userId, meta = {}) {
   const state = getUserQueueState(userId);
   return new Promise((resolve, reject) => {
-    state.queue.push({ fn, resolve, reject });
+    const task = {
+      id: ++taskSeq,
+      userId: userId || 'anonymous',
+      type: meta.type || 'unknown',
+      taskType: meta.taskType || 'text',
+      modelOverride: meta.model || null,
+      status: 'queued',
+      enqueuedAt: Date.now(),
+    };
+    state.queue.push({ fn, resolve, reject, task });
+    pushTaskEvent(task);
     processQueue(userId);
   });
 }
@@ -199,11 +222,18 @@ async function processQueue(userId) {
   state.processingQueue = true;
   while (state.queue.length) {
     const job = state.queue.shift();
+    job.task.status = 'running';
+    job.task.startedAt = Date.now();
     try {
       const result = await runWithRetry(job.fn);
+      job.task.status = 'done';
       job.resolve(result);
     } catch (e) {
+      job.task.status = e && e.message && e.message.includes('cancelled') ? 'cancelled' : 'error';
+      job.task.error = (e && e.message) || 'unknown error';
       job.reject(e);
+    } finally {
+      job.task.finishedAt = Date.now();
     }
   }
   state.processingQueue = false;
@@ -347,7 +377,7 @@ function callExtractFromText(text, options = {}) {
 }
 
 function extractFromText(text, options = {}) {
-  return enqueue(() => callExtractFromText(text, options), options.userId);
+  return enqueue(() => callExtractFromText(text, options), options.userId, { type: '生成指令', taskType: 'text', model: options.model });
 }
 
 function parseJsonContent(content) {
@@ -429,7 +459,7 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
 }
 
 function refineFromText(text, currentCommands, history, options = {}) {
-  return enqueue(() => callRefineFromText(text, currentCommands, history, options), options.userId);
+  return enqueue(() => callRefineFromText(text, currentCommands, history, options), options.userId, { type: '指令调整', taskType: 'text', model: options.model });
 }
 
 function callAnalyzeImage(base64, options = {}) {
@@ -465,7 +495,7 @@ function callAnalyzeImage(base64, options = {}) {
 }
 
 function analyzeImage(base64, options = {}) {
-  return enqueue(() => callAnalyzeImage(base64, options), options.userId);
+  return enqueue(() => callAnalyzeImage(base64, options), options.userId, { type: '图片识别', taskType: 'vision', model: options.model });
 }
 
 function callAnalyzeConstruction(text, options = {}) {
@@ -507,7 +537,7 @@ function callAnalyzeConstruction(text, options = {}) {
 }
 
 function analyzeConstruction(text, options = {}) {
-  return enqueue(() => callAnalyzeConstruction(text, options), options.userId);
+  return enqueue(() => callAnalyzeConstruction(text, options), options.userId, { type: '作图分析', taskType: 'text', model: options.model });
 }
 
 module.exports = {
@@ -516,5 +546,7 @@ module.exports = {
   analyzeImage,
   analyzeConstruction,
   chatCompletion,
+  getTaskEvents,
+  runTask: enqueue,
   cancelCurrentRequest
 };

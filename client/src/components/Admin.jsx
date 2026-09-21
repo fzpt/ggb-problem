@@ -1,5 +1,25 @@
 import { useEffect, useState } from 'react';
-import { getAdminSettings, putAdminSettings, testAdminModel } from '../services/api';
+import { getAdminSettings, putAdminSettings, testAdminModel, getAdminTasks, cancelAdminTask } from '../services/api';
+
+const STATUS_LABEL = {
+  queued: '排队中',
+  running: '运行中',
+  done: '完成',
+  error: '失败',
+  cancelled: '已取消',
+};
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function fmtDuration(t) {
+  if (!t.startedAt) return '-';
+  const end = t.finishedAt || Date.now();
+  const s = Math.round((end - t.startedAt) / 1000);
+  return s < 60 ? `${s} 秒` : `${Math.round(s / 60)} 分钟`;
+}
 
 export default function Admin() {
   const [loading, setLoading] = useState(true);
@@ -13,6 +33,7 @@ export default function Admin() {
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
+  const [tasks, setTasks] = useState([]);
 
   useEffect(() => {
     getAdminSettings()
@@ -29,6 +50,25 @@ export default function Admin() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  // 大模型任务轮询（3 秒刷新）
+  useEffect(() => {
+    if (forbidden) return undefined;
+    let stopped = false;
+    const load = () => {
+      getAdminTasks().then((d) => { if (!stopped) setTasks(d.tasks || []); }).catch(() => {});
+    };
+    load();
+    const timer = setInterval(load, 3000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [forbidden]);
+
+  const cancelTask = (userId) => {
+    cancelAdminTask(userId).then(() => {
+      setStatus('已发送取消请求。');
+      getAdminTasks().then((d) => setTasks(d.tasks || [])).catch(() => {});
+    }).catch((e) => setStatus('取消失败：' + e.message));
+  };
 
   const save = async () => {
     setSaving(true);
@@ -143,6 +183,49 @@ export default function Admin() {
           <button className="button primary" onClick={save} disabled={saving}>保存配置</button>
           {status && <span className="text-muted admin-status">{status}</span>}
         </div>
+
+        <section className="admin-section">
+          <h2 className="admin-section-title">大模型调用任务</h2>
+          {tasks.length === 0 ? (
+            <p className="text-muted admin-note">暂无任务记录。</p>
+          ) : (
+            <table className="entry-table admin-task-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>用户</th>
+                  <th>任务</th>
+                  <th>模型</th>
+                  <th>开始</th>
+                  <th>耗时</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr key={t.id}>
+                    <td><span className={'admin-task-status ' + t.status}>{STATUS_LABEL[t.status] || t.status}</span></td>
+                    <td>{t.email}</td>
+                    <td>{t.type}</td>
+                    <td>{t.model}</td>
+                    <td>{fmtTime(t.startedAt || t.enqueuedAt)}</td>
+                    <td>{fmtDuration(t)}</td>
+                    <td>
+                      {t.status === 'running' && (
+                        <button className="button admin-cancel" onClick={() => cancelTask(t.userId)}>取消</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {tasks.some((t) => t.status === 'error') && (
+            <p className="text-muted admin-note">
+              最近错误：{tasks.find((t) => t.status === 'error')?.error}
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );

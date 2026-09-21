@@ -249,8 +249,39 @@ app.put('/api/admin/settings', requireAdmin, (req, res, next) => {
 app.post('/api/admin/test-model', requireAdmin, async (req, res, next) => {
   try {
     const { model } = req.body || {};
-    const result = await providers.testModel(model);
+    const result = await providers.testModel(model, req.userId);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 大模型调用任务查看（含排队/运行中/最近记录）
+app.get('/api/admin/tasks', requireAdmin, (req, res, next) => {
+  try {
+    const events = providers.getTaskEvents().map((t) => {
+      const email = t.userId && t.userId !== 'anonymous' ? db.getUserById(t.userId)?.email : null;
+      return {
+        ...t,
+        email: email || t.userId,
+        model: t.modelOverride || settings.resolveModelId(t.taskType || 'text'),
+      };
+    });
+    res.json({ tasks: events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 管理员取消某用户正在运行的大模型请求
+app.post('/api/admin/cancel-task', requireAdmin, (req, res, next) => {
+  try {
+    const { userId } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    const cancelled = providers.cancelCurrentRequest('kimi', { userId });
+    res.json({ cancelled });
   } catch (err) {
     next(err);
   }
