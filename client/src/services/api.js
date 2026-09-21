@@ -1,7 +1,7 @@
 import { createAuthClient } from 'better-auth/react';
 
 const API_BASE = '';
-const DEFAULT_TIMEOUT = 120000;
+const DEFAULT_TIMEOUT = 300000;
 
 // Better Auth client base URL. Use the current origin so it works both in
 // Vite dev (http://localhost:5173) and production (http://localhost:3000).
@@ -62,6 +62,16 @@ export function recognizeImage(imageDataUrl, provider = 'baidu', signal) {
 
 export function extractCommands(text, provider = 'kimi', signal) {
   return post('/api/extract', { text, provider, options: { mode: 'direct' } }, signal);
+}
+
+// 图片/文字识别 + 题目补全，返回 { rawText, completedText }
+export function analyzeProblemImage(imageDataUrl, text, signal) {
+  return post('/api/analyze-image', { image: imageDataUrl || undefined, text: text || undefined }, signal);
+}
+
+// 作图分析，返回 { steps: [...], commands: [...], warnings? }
+export function analyzeConstruction(text, signal) {
+  return post('/api/construction-analysis', { text }, signal);
 }
 
 export function refineCommands(

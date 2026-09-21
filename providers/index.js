@@ -42,6 +42,23 @@ function refineGeometryCommands(text, currentCommands, history, providerName, op
   }
   return provider.refineFromText(text, currentCommands, history, options);
 }
+
+function analyzeImage(base64, providerName, options) {
+  const provider = providers[providerName] || providers[config.llm.provider];
+  if (!provider.analyzeImage) {
+    return Promise.reject(new Error(`Provider ${providerName} does not support image analysis.`));
+  }
+  return provider.analyzeImage(base64, options);
+}
+
+function analyzeConstruction(text, providerName, options) {
+  const provider = providers[providerName] || providers[config.llm.provider];
+  if (!provider.analyzeConstruction) {
+    return Promise.reject(new Error(`Provider ${providerName} does not support construction analysis.`));
+  }
+  return provider.analyzeConstruction(text, options);
+}
+
 function cancelCurrentRequest(providerName, options = {}) {
   const name = providerName || config.llm.provider;
   if (name === 'kimi') {
@@ -55,6 +72,8 @@ module.exports = {
   extractFromImage,
   extractTextFromImage,
   extractGeometryFromText,
+  analyzeImage,
+  analyzeConstruction,
   generateCommands,
   cancelCurrentRequest,
   refineGeometryCommands

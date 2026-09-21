@@ -120,6 +120,48 @@ ${GG_REFERENCE}
 11. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
 
+// k2.7-code 是纯文本编码模型，图片理解固定用支持视觉的 k2.6
+const VISION_MODEL = 'kimi-k2.6';
+
+const SYSTEM_PROMPT_IMAGE_ANALYZE = `You are a geometry problem OCR and completion assistant. Analyze the input (a photo of a Chinese geometry problem, or plain problem text) and output a single valid JSON object with exactly two fields:
+
+{
+  "rawText": "the literal text recognized from the image, transcribed as-is (for text input, echo it verbatim)",
+  "completedText": "the problem statement rewritten to be self-contained and complete"
+}
+
+Rules for completedText:
+1. Keep the original meaning and wording; do not solve the problem.
+2. Fill in missing implicit information, especially which segments/lines each named point belongs to (e.g. if a point is stated without saying which segment it lies on, state it explicitly; if a triangle is mentioned, spell out its connecting segments).
+3. If a letter or symbol is ambiguous from OCR, choose the geometrically sensible reading.
+4. Output ONLY valid JSON. No markdown fences. No explanations.`;
+
+const SYSTEM_PROMPT_CONSTRUCTION = `You are a GeoGebra Geometry construction planner. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly two fields:
+
+{
+  "steps": [
+    {"order": 1, "object": "A, B, C", "type": "自由点", "dependencies": "无", "constraint": "仅形状要求: AB > BC, C 在直线 AB 上方"}
+  ],
+  "commands": ["A = (0, 0)", "B = (6, 0)", "Segment(A, B)"]
+}
+
+The "steps" array describes the construction order analysis, one row per construction stage:
+- order: 1-based integer
+- object: the point(s) or main object(s) created in this stage
+- type: e.g. 自由点 / 受约束点 / 交点 / 辅助点 / 线段 / 圆 etc.
+- dependencies: the objects this stage depends on, or 无
+- constraint: the geometric constraint that defines it (equal length, intersection, on segment, etc.)
+
+The "commands" array is a GeoGebra Geometry script that realizes the construction:
+1. First create free points with simple numeric coordinates.
+2. Then dependent points via intersections, rotations, midpoints, etc.
+3. Then draw the final required segments/lines/circles/polygons.
+4. ONLY use commands from this verified reference:
+${GG_REFERENCE}
+5. Auxiliary/intermediate construction products (helper circles, rays, temporary points that are NOT part of the final figure) must be hidden: immediately after creating such an object named X, append the line "SetVisibleInView(X, 1, false)".
+6. Give explicit names to auxiliary objects (e.g. c1, r1, E) so they can be hidden.
+7. Output ONLY valid JSON. No markdown fences. No explanations.`;
+
 // Per-user queue and current request tracking.
 const userQueues = new Map();
 
@@ -212,13 +254,13 @@ function callKimi(apiKey, model, messages, userId) {
 
     state.currentRequest.on('error', (err) => {
       state.currentRequest = null;
-      if (err.code === 'ECONNRESET') {
-        reject(new Error('Kimi request was cancelled.'));
-      } else {
-        reject(err);
-      }
+      reject(err);
     });
-    state.currentRequest.setTimeout(120000, () => reject(new Error('Kimi request timed out')));
+    // 超时必须销毁连接，否则僵尸请求会一直占用组织唯一的并发槽位
+    state.currentRequest.setTimeout(300000, () => {
+      const req = state.currentRequest;
+      if (req) req.destroy(new Error('Kimi request timed out'));
+    });
     state.currentRequest.write(payload);
     state.currentRequest.end();
   });
@@ -227,7 +269,7 @@ function callKimi(apiKey, model, messages, userId) {
 function cancelCurrentRequest(userId) {
   const state = getUserQueueState(userId);
   if (state.currentRequest) {
-    state.currentRequest.destroy();
+    state.currentRequest.destroy(new Error('Kimi request was cancelled.'));
     state.currentRequest = null;
     return true;
   }
@@ -387,4 +429,96 @@ function refineFromText(text, currentCommands, history, options = {}) {
   return enqueue(() => callRefineFromText(text, currentCommands, history, options), options.userId);
 }
 
-module.exports = { extractFromText, refineFromText, cancelCurrentRequest };
+function callAnalyzeImage(base64, options = {}) {
+  const apiKey = options.apiKey || config.llm.kimi.apiKey;
+  if (!apiKey) {
+    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+  }
+  const model = options.model || VISION_MODEL;
+  const userId = options.userId;
+
+  const content = [];
+  if (base64) {
+    content.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } });
+    content.push({
+      type: 'text',
+      text: 'Recognize and complete this geometry problem. Output only the JSON object.'
+    });
+  } else {
+    content.push({
+      type: 'text',
+      text: 'Complete this geometry problem text: fill in missing implicit information, especially which segments/lines each named point belongs to, while keeping the original meaning. Output only the JSON object.\n\nProblem text:\n' + (options.text || '')
+    });
+  }
+
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT_IMAGE_ANALYZE },
+    { role: 'user', content }
+  ];
+
+  return callKimi(apiKey, model, messages, userId).then(contentText => {
+    const parsed = parseJsonContent(contentText);
+    return {
+      rawText: parsed.rawText || '',
+      completedText: parsed.completedText || parsed.rawText || ''
+    };
+  });
+}
+
+function analyzeImage(base64, options = {}) {
+  return enqueue(() => callAnalyzeImage(base64, options), options.userId);
+}
+
+function callAnalyzeConstruction(text, options = {}) {
+  const apiKey = options.apiKey || config.llm.kimi.apiKey;
+  if (!apiKey) {
+    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+  }
+  const model = options.model || config.llm.kimi.model || DEFAULT_MODEL;
+  const userId = options.userId;
+
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT_CONSTRUCTION },
+    { role: 'user', content: `Analyze the construction of this geometry problem and produce the construction plan and GeoGebra commands:\n\n${text}` }
+  ];
+
+  return (async () => {
+    let content = await callKimi(apiKey, model, messages, userId);
+    let parsed = parseJsonContent(content);
+    let validation = ggb.validateCommands(parsed.commands);
+
+    if (validation.invalid.length > 0) {
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false) });
+      content = await callKimi(apiKey, model, messages, userId);
+      parsed = parseJsonContent(content);
+      validation = ggb.validateCommands(parsed.commands);
+    }
+
+    const steps = Array.isArray(parsed.steps) ? parsed.steps.map((s, i) => ({
+      order: s.order != null ? s.order : i + 1,
+      object: s.object || '',
+      type: s.type || '',
+      dependencies: s.dependencies || '无',
+      constraint: s.constraint || ''
+    })) : [];
+
+    const result = { steps, commands: validation.valid };
+    if (validation.invalid.length > 0) {
+      result.warnings = validation.invalid.map(v => v.reason);
+    }
+    return result;
+  })();
+}
+
+function analyzeConstruction(text, options = {}) {
+  return enqueue(() => callAnalyzeConstruction(text, options), options.userId);
+}
+
+module.exports = {
+  extractFromText,
+  refineFromText,
+  analyzeImage,
+  analyzeConstruction,
+  cancelCurrentRequest
+};

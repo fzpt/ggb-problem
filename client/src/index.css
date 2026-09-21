@@ -823,6 +823,232 @@ button.primary:hover {
     border-bottom: 1px solid var(--border);
   }
 }
+
+/* ---------- 新建题目录入页 ---------- */
+.entry-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.entry-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.entry-back {
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.entry-back:hover {
+  color: var(--ink);
+}
+
+.entry-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.entry-name {
+  flex: 1;
+  max-width: 360px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.entry-hint {
+  font-size: 0.8rem;
+}
+
+.entry-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.entry-left {
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.entry-dropzone {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 8px;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.entry-dropzone.dragover {
+  border-color: var(--ink);
+}
+
+.entry-dropzone.has-image {
+  cursor: default;
+}
+
+.entry-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.entry-preview img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.entry-text-input,
+.entry-box {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.entry-text-input {
+  min-height: 64px;
+}
+
+.entry-box {
+  min-height: 90px;
+}
+
+.entry-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.entry-status {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.entry-right {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.entry-steps {
+  flex: 1.2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  background: var(--surface);
+}
+
+.entry-placeholder {
+  font-size: 0.875rem;
+}
+
+.entry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.entry-table th,
+.entry-table td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.entry-table th {
+  background: var(--bg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.entry-table td:first-child {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.entry-commands {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.entry-commands-box {
+  flex: 1;
+  min-height: 200px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.85rem;
+  resize: none;
+}
+
+.entry-draw {
+  align-self: flex-end;
+  min-width: 120px;
+}
+
+@media (max-width: 1000px) {
+  .entry-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .entry-left {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .entry-right {
+    flex-direction: column;
+  }
+  .entry-steps {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
 .border-ink { border-color: var(--ink); }
 
 @media (max-width: 1024px) {

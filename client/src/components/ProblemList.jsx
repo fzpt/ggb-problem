@@ -6,7 +6,6 @@ export default function ProblemList() {
     problems,
     activeProblemId,
     selectProblem,
-    openModal,
     deleteProblem,
     logout,
   } = useApp();
@@ -16,7 +15,7 @@ export default function ProblemList() {
       <div className="problem-list-head">
         <span className="problem-list-title">题目列表</span>
         <div className="flex items-center gap-2">
-          <button className="primary" onClick={openModal}>+ New</button>
+          <button className="primary" onClick={() => { window.location.hash = '#/entry'; }}>+ New</button>
         </div>
       </div>
       <div className="problem-list-body">

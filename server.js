@@ -105,6 +105,40 @@ app.post('/api/extract', requireAuth, async (req, res, next) => {
   }
 });
 
+// Recognize + complete a problem from an image (or plain text)
+app.post('/api/analyze-image', requireAuth, async (req, res, next) => {
+  try {
+    const { image, text, provider } = req.body || {};
+    if (!image && !text) {
+      return res.status(400).json({ error: 'Image or text is required' });
+    }
+    const base64 = image ? stripDataUrl(image) : '';
+    const result = await providers.analyzeImage(base64, provider, {
+      userId: req.userId,
+      text,
+    });
+    res.json({ ...result, provider: provider || config.llm.provider });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Construction order analysis + GeoGebra commands from problem text
+app.post('/api/construction-analysis', requireAuth, async (req, res, next) => {
+  try {
+    const { text, provider } = req.body || {};
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+    const result = await providers.analyzeConstruction(text, provider, {
+      userId: req.userId,
+    });
+    res.json({ ...result, provider: provider || config.llm.provider });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Refine commands
 app.post('/api/refine', requireAuth, async (req, res, next) => {
   try {
