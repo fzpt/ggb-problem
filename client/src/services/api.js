@@ -1,7 +1,9 @@
 import { createAuthClient } from 'better-auth/react';
 
 const API_BASE = '';
-const DEFAULT_TIMEOUT = 300000;
+// GLM 等模型响应时间波动大（实测 12s-390s），客户端超时放宽到 10 分钟，
+// 与服务端重试机制（300s x 3）匹配
+const DEFAULT_TIMEOUT = 600000;
 
 // Better Auth client base URL. Use the current origin so it works both in
 // Vite dev (http://localhost:5173) and production (http://localhost:3000).
