@@ -140,6 +140,14 @@ export function cancelAdminTask(userId) {
   return post('/api/admin/cancel-task', { userId });
 }
 
+export function getAdminLogs() {
+  return fetch(`${API_BASE}/api/admin/logs`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
 export async function loadState() {
   const res = await fetch(`${API_BASE}/api/state`, { credentials: 'include' });
   const text = await res.text();

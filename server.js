@@ -22,7 +22,18 @@ const providers = require('./providers');
 const db = require('./db');
 const settings = require('./lib/settings');
 const { MODELS, findModel } = require('./lib/models');
+const llmLogger = require('./lib/llm-logger');
 const { auth } = require('./auth');
+
+// 日志轮转配置与设置同步（启动时 + 管理后台保存时）
+function syncLogConfig() {
+  const s = settings.getSettings();
+  llmLogger.configure({
+    maxMb: process.env.LLM_LOG_MAX_MB ? Number(process.env.LLM_LOG_MAX_MB) : s.logMaxMb,
+    maxFiles: process.env.LLM_LOG_MAX_FILES ? Number(process.env.LLM_LOG_MAX_FILES) : s.logMaxFiles,
+  });
+}
+syncLogConfig();
 
 const app = express();
 const PORT = config.port;
@@ -207,6 +218,8 @@ app.get('/api/admin/settings', requireAdmin, (req, res, next) => {
       textModel: s.textModel,
       zhipuKeyMasked: settings.maskKey(s.keysZhipu),
       adminEmails: settings.getAdminEmails(),
+      logMaxMb: s.logMaxMb,
+      logMaxFiles: s.logMaxFiles,
       models: MODELS,
     });
   } catch (err) {
@@ -216,7 +229,7 @@ app.get('/api/admin/settings', requireAdmin, (req, res, next) => {
 
 app.put('/api/admin/settings', requireAdmin, (req, res, next) => {
   try {
-    const { visionModel, textModel, zhipuKey, adminEmails } = req.body || {};
+    const { visionModel, textModel, zhipuKey, adminEmails, logMaxMb, logMaxFiles } = req.body || {};
     const patch = {};
     if (visionModel) {
       const m = findModel(visionModel);
@@ -239,7 +252,22 @@ app.put('/api/admin/settings', requireAdmin, (req, res, next) => {
         .map((e) => String(e).trim().toLowerCase())
         .filter(Boolean);
     }
+    if (logMaxMb !== undefined) {
+      const n = Number(logMaxMb);
+      if (!Number.isFinite(n) || n < 1 || n > 2048) {
+        return res.status(400).json({ error: '单文件大小需在 1-2048 MB 之间' });
+      }
+      patch.logMaxMb = Math.floor(n);
+    }
+    if (logMaxFiles !== undefined) {
+      const n = Number(logMaxFiles);
+      if (!Number.isFinite(n) || n < 1 || n > 10000) {
+        return res.status(400).json({ error: '保留文件数需在 1-10000 之间' });
+      }
+      patch.logMaxFiles = Math.floor(n);
+    }
     settings.saveSettings(patch);
+    syncLogConfig();
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -282,6 +310,15 @@ app.post('/api/admin/cancel-task', requireAdmin, (req, res, next) => {
     }
     const cancelled = providers.cancelCurrentRequest('kimi', { userId });
     res.json({ cancelled });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 大模型日志状态
+app.get('/api/admin/logs', requireAdmin, (req, res, next) => {
+  try {
+    res.json(llmLogger.getStatus());
   } catch (err) {
     next(err);
   }

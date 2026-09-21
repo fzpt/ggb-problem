@@ -1135,6 +1135,17 @@ button.primary:hover {
   padding: 2px 8px;
   font-size: 0.75rem;
 }
+
+.admin-input-narrow {
+  max-width: 160px;
+}
+
+.admin-log-files {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
 .border-ink { border-color: var(--ink); }
 
 @media (max-width: 1024px) {

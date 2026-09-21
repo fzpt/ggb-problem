@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAdminSettings, putAdminSettings, testAdminModel, getAdminTasks, cancelAdminTask } from '../services/api';
+import { getAdminSettings, putAdminSettings, testAdminModel, getAdminTasks, cancelAdminTask, getAdminLogs } from '../services/api';
 
 const STATUS_LABEL = {
   queued: '排队中',
@@ -34,6 +34,9 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
   const [tasks, setTasks] = useState([]);
+  const [logMaxMb, setLogMaxMb] = useState(10);
+  const [logMaxFiles, setLogMaxFiles] = useState(100);
+  const [logStatus, setLogStatus] = useState(null);
 
   useEffect(() => {
     getAdminSettings()
@@ -43,6 +46,8 @@ export default function Admin() {
         setTextModel(s.textModel || '');
         setZhipuKeyMasked(s.zhipuKeyMasked || '');
         setAdminEmailsText((s.adminEmails || []).join(', '));
+        setLogMaxMb(s.logMaxMb || 10);
+        setLogMaxFiles(s.logMaxFiles || 100);
       })
       .catch((e) => {
         if (e.message.includes('403') || e.message.includes('管理员')) setForbidden(true);
@@ -50,6 +55,11 @@ export default function Admin() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (forbidden) return;
+    getAdminLogs().then(setLogStatus).catch(() => {});
+  }, [forbidden, status]);
 
   // 大模型任务轮询（3 秒刷新）
   useEffect(() => {
@@ -78,6 +88,8 @@ export default function Admin() {
         visionModel,
         textModel,
         adminEmails: adminEmailsText.split(/[,，\s]+/).filter(Boolean),
+        logMaxMb: Number(logMaxMb),
+        logMaxFiles: Number(logMaxFiles),
       };
       if (zhipuKey.trim()) patch.zhipuKey = zhipuKey.trim();
       await putAdminSettings(patch);
@@ -177,6 +189,45 @@ export default function Admin() {
             value={adminEmailsText}
             onChange={(e) => setAdminEmailsText(e.target.value)}
           />
+        </section>
+
+        <section className="admin-section">
+          <h2 className="admin-section-title">大模型日志</h2>
+          <label className="entry-label">单文件大小（MB，超出后切新文件）</label>
+          <input
+            className="admin-input admin-input-narrow"
+            type="number"
+            min="1"
+            max="2048"
+            value={logMaxMb}
+            onChange={(e) => setLogMaxMb(e.target.value)}
+          />
+          <label className="entry-label">保留文件数（超出后删除最旧的）</label>
+          <input
+            className="admin-input admin-input-narrow"
+            type="number"
+            min="1"
+            max="10000"
+            value={logMaxFiles}
+            onChange={(e) => setLogMaxFiles(e.target.value)}
+          />
+          {logStatus && (
+            <div className="admin-log-info">
+              <p className="text-muted admin-note">
+                目录：{logStatus.dir} ｜ 当前文件：{logStatus.currentFile || '（尚未写入）'} ｜
+                共 {logStatus.fileCount} 个文件，{(logStatus.totalBytes / 1024 / 1024).toFixed(2)} MB
+              </p>
+              {logStatus.files?.length > 0 && (
+                <ul className="admin-log-files">
+                  {logStatus.files.map((f) => (
+                    <li key={f.name} className="text-muted">
+                      {f.name} — {(f.size / 1024).toFixed(1)} KB
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
 
         <div className="admin-actions">

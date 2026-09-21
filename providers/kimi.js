@@ -3,6 +3,7 @@ const config = require('../config');
 const ggb = require('../lib/ggb-commands');
 const settings = require('../lib/settings');
 const zhipu = require('./zhipu');
+const llmLogger = require('../lib/llm-logger');
 const GG_REFERENCE = ggb.referenceText();
 
 const DEFAULT_MODEL = 'kimi-k2.7-code';
@@ -10,14 +11,39 @@ const DEFAULT_MODEL = 'kimi-k2.7-code';
 // 统一出口：按模型 id 分发到 Kimi 或智谱，模型来自管理后台设置
 function chatCompletion(messages, options = {}) {
   const model = options.model || settings.resolveModelId(options.taskType || 'text');
+  const startedAt = Date.now();
+  const logBase = {
+    model,
+    taskType: options.taskType || 'text',
+    userId: options.userId,
+    messages,
+  };
   if (model.startsWith('glm')) {
-    return zhipu.chat(settings.getSettings().keysZhipu, model, messages);
+    return zhipu
+      .chat(settings.getSettings().keysZhipu, model, messages)
+      .then((content) => {
+        llmLogger.log({ ...logBase, ok: true, response: content, durationMs: Date.now() - startedAt });
+        return content;
+      })
+      .catch((err) => {
+        llmLogger.log({ ...logBase, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+        throw err;
+      });
   }
   const apiKey = config.llm.kimi.apiKey;
   if (!apiKey) {
     return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
   }
-  return callKimi(apiKey, model, messages, options.userId);
+  return callKimi(apiKey, model, messages, options.userId).then(
+    (content) => {
+      llmLogger.log({ ...logBase, ok: true, response: content, durationMs: Date.now() - startedAt });
+      return content;
+    },
+    (err) => {
+      llmLogger.log({ ...logBase, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+      throw err;
+    }
+  );
 }
 
 const SYSTEM_PROMPT_JSON = `You are a geometry-to-JSON converter. Your only job is to read a Chinese geometry problem and output a single valid JSON object in the exact schema below. Do not output any other text, explanations, markdown fences, or reasoning.
