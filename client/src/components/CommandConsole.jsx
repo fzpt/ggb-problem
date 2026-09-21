@@ -3,6 +3,21 @@ import { loadGgbScript } from '../lib/ggb-script';
 
 const LS_KEY = 'ggb-console-script';
 
+// GeoGebra 会把拼写的希腊字母名（如 beta）转成符号（β）作为对象名，
+// 但 evalCommand 不会把 beta 解析回 β，这里统一转换，避免"未定义变量"
+const GREEK = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε',
+  zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ',
+  lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', omicron: 'ο',
+  rho: 'ρ', sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ',
+  chi: 'χ', psi: 'ψ', omega: 'ω',
+};
+const GREEK_RE = new RegExp(`\\b(${Object.keys(GREEK).join('|')})\\b`, 'g');
+
+function normalizeLine(line) {
+  return line.replace(GREEK_RE, (m) => GREEK[m]);
+}
+
 export default function CommandConsole() {
   const stageRef = useRef(null);
   const apiRef = useRef(null);
@@ -104,7 +119,7 @@ export default function CommandConsole() {
       const line = raw.trim().replace(/;+\s*$/, '');
       if (!line || line.startsWith('//') || line.startsWith('#')) return;
       try {
-        if (api.evalCommand(line)) {
+        if (api.evalCommand(normalizeLine(line))) {
           ok += 1;
         } else {
           failures.push(`第 ${i + 1} 行执行失败: ${line}`);
