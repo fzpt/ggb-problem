@@ -100,7 +100,8 @@ export default function CommandConsole() {
     const failures = [];
     let ok = 0;
     lines.forEach((raw, i) => {
-      const line = raw.trim();
+      // GeoGebra 中分号用于参数式输入（如 (1+t; 2)），行尾分号会导致变量未定义
+      const line = raw.trim().replace(/;+\s*$/, '');
       if (!line || line.startsWith('//') || line.startsWith('#')) return;
       try {
         if (api.evalCommand(line)) {
