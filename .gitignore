@@ -11,3 +11,5 @@ cookies.txt
 *.sqlite
 
 logs/
+
+llm-tasks.jsonl

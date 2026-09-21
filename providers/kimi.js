@@ -1,4 +1,6 @@
 const https = require('node:https');
+const fs = require('node:fs');
+const path = require('node:path');
 const config = require('../config');
 const ggb = require('../lib/ggb-commands');
 const settings = require('../lib/settings');
@@ -213,14 +215,47 @@ ${GG_REFERENCE}
 
 // Per-user queue and current request tracking.
 const userQueues = new Map();
-// 任务事件环形缓冲，供管理后台查看（新任务在前）
+// 任务事件环形缓冲，供管理后台查看（新任务在前）；持久化到磁盘，重启不丢
 const taskEvents = [];
 const MAX_TASK_EVENTS = 100;
 let taskSeq = 0;
+const TASKS_FILE = path.join(__dirname, '..', 'llm-tasks.jsonl');
+
+function persistTaskEvents() {
+  try {
+    const lines = taskEvents.slice().reverse().map((t) => JSON.stringify(t));
+    fs.writeFileSync(TASKS_FILE, lines.join('\n') + (lines.length ? '\n' : ''));
+  } catch {
+    // 持久化失败不影响主流程
+  }
+}
+
+function loadTaskEvents() {
+  try {
+    const content = fs.readFileSync(TASKS_FILE, 'utf-8');
+    const parsed = content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    // 文件按最旧到最新存储，恢复为最新在前
+    taskEvents.length = 0;
+    taskEvents.push(...parsed.reverse().slice(0, MAX_TASK_EVENTS));
+    taskSeq = taskEvents.reduce((max, t) => Math.max(max, t.id || 0), 0);
+    // 重启时仍在排队/运行的任务已经不存在了，标记为中断
+    for (const t of taskEvents) {
+      if (t.status === 'queued' || t.status === 'running') {
+        t.status = 'error';
+        t.error = '服务重启，任务中断';
+        t.finishedAt = t.finishedAt || Date.now();
+      }
+    }
+  } catch {
+    // 无历史文件或损坏则从头开始
+  }
+}
+loadTaskEvents();
 
 function pushTaskEvent(task) {
   taskEvents.unshift(task);
   if (taskEvents.length > MAX_TASK_EVENTS) taskEvents.pop();
+  persistTaskEvents();
 }
 
 function getTaskEvents() {
@@ -271,6 +306,7 @@ async function processQueue(userId) {
       job.reject(e);
     } finally {
       job.task.finishedAt = Date.now();
+      persistTaskEvents();
     }
   }
   state.processingQueue = false;
