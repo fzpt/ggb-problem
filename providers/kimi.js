@@ -183,8 +183,7 @@ Rules for completedText:
 3. If a letter or symbol is ambiguous from OCR, choose the geometrically sensible reading.
 4. Output ONLY valid JSON. No markdown fences. No explanations.`;
 
-const SYSTEM_PROMPT_CONSTRUCTION = `You are a GeoGebra Geometry construction planner. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly two fields:
-
+const SYSTEM_PROMPT_CONSTRUCTION = `You are a GeoGebra Geometry construction planner, NEVER prove, verify, or solve the problem. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly two fields,Output ONLY valid JSON. No markdown fences. No explanations:
 {
   "steps": [
     {"order": 1, "object": "A, B, C", "type": "自由点", "dependencies": "无", "constraint": "仅形状要求: AB > BC, C 在直线 AB 上方"}
@@ -201,17 +200,10 @@ The "steps" array describes the construction order analysis, one row per constru
 
 The "commands" array is a GeoGebra Geometry script that realizes the construction:
 1. ONLY the initial free points (points with no geometric constraint, e.g. the triangle's vertices) may use numeric coordinates like "A = (0, 0)". Usually just 2-4 free points.
-2. Every OTHER point must be constructed through a geometric CONSTRAINT relationship. NEVER assign precomputed numeric coordinates to a constrained point, and NEVER write computed coordinate values (e.g. "D = (4, 0)", "F = (5.6, 2.77)") — the coordinates must emerge from the construction itself. Use commands such as:
-   - Intersect( <Object>, <Object> ): intersections of lines/segments/rays/circles (e.g. point on a segment, crossing points).
-   - Circle( <Point>, <Segment> ) to transfer a length onto another line, then Intersect: e.g. "D on segment AB with AD = BC" becomes: c1 = Circle(A, Segment(B, C)); D = Intersect(c1, Segment(A, B)).
-   - Midpoint( <Point>, <Point> ), Rotate( <Point>, <Angle>, <Point> ), Point( <Object>, <Parameter> ) for points defined by other relations.
-   Example: "F = intersection of ray DE and segment AC" becomes: r = Ray(D, E); F = Intersect(r, Segment(A, C)).
+2. Every OTHER point must be constructed through a geometric CONSTRAINT relationship. NEVER assign precomputed numeric coordinates to a constrained point.
 3. Then draw the final required segments/lines/circles/polygons.
-4. ONLY use commands from this verified reference:
-${GG_REFERENCE}
-5. Auxiliary/intermediate construction products (helper circles, rays, temporary points that are NOT part of the final figure) must be hidden: immediately after creating such an object named X, append the line "SetVisibleInView(X, 1, false)".
-6. Give explicit names to auxiliary objects (e.g. c1, r1, E) so they can be hidden.
-7. Output ONLY valid JSON. No markdown fences. No explanations.`;
+4. Auxiliary/intermediate construction products (helper circles, rays, temporary points that are NOT part of the final figure) must be hidden: immediately after creating such an object named X, append the line "SetVisibleInView(X, 1, false)".
+5. Give explicit names to auxiliary objects (e.g. c1, r1, E) so they can be hidden.`;
 
 // Per-user queue and current request tracking.
 const userQueues = new Map();

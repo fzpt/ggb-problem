@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
+import { loadGgbScript } from '../lib/ggb-script';
 
 export default function GeoGebraViewer() {
 const containerRef = useRef(null);
@@ -9,42 +10,43 @@ const [ready, setReady] = useState(false);
 
   const commands = activeProblem?.commands || '';
 
- useEffect(() => {
-   if (window.__ggbScriptLoaded || window.ggbApplet) return;
-   window.__ggbScriptLoaded = true;
-
-    const script = document.createElement('script');
-    script.src = 'https://www.geogebra.org/apps/deployggb.js';
-    script.async = true;
-    script.onload = () => {
-      if (!containerRef.current || !window.GGBApplet) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const params = {
-        id: 'ggbApplet',
-        appName: 'geometry',
-        width: Math.max(320, Math.floor(rect.width)),
-        height: Math.max(320, Math.floor(rect.height)),
-        showToolBar: true,
-        showAlgebraInput: true,
-        showMenuBar: false,
-        enableLabelDrags: true,
-        enableShiftDragZoom: true,
-        useBrowserForJS: false,
-        appletOnLoad: () => {
-          setReady(true);
-          setStatus({ text: 'GeoGebra 已就绪', color: '#333333' });
-          setLog('GeoGebra 加载完成，可以执行指令。');
-        },
-      };
-      const applet = new window.GGBApplet(params, true);
-      applet.inject(containerRef.current.id);
-      containerRef.current.dataset.loaded = 'true';
+  useEffect(() => {
+    let cancelled = false;
+    loadGgbScript()
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.GGBApplet) return;
+        // 已有一个可用的 applet 注入在本容器时不再重复注入
+        if (containerRef.current.dataset.loaded === 'true') return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const params = {
+          id: 'ggbApplet',
+          appName: 'geometry',
+          width: Math.max(320, Math.floor(rect.width)),
+          height: Math.max(320, Math.floor(rect.height)),
+          showToolBar: true,
+          showAlgebraInput: true,
+          showMenuBar: false,
+          enableLabelDrags: true,
+          enableShiftDragZoom: true,
+          useBrowserForJS: false,
+          appletOnLoad: () => {
+            setReady(true);
+            setStatus({ text: 'GeoGebra 已就绪', color: '#333333' });
+            setLog('GeoGebra 加载完成，可以执行指令。');
+          },
+        };
+        const applet = new window.GGBApplet(params, true);
+        applet.inject(containerRef.current.id);
+        containerRef.current.dataset.loaded = 'true';
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStatus({ text: 'GeoGebra 加载失败', color: '#555555' });
+        setLog('GeoGebra 脚本加载失败，请检查网络。');
+      });
+    return () => {
+      cancelled = true;
     };
-    script.onerror = () => {
-      setStatus({ text: 'GeoGebra 加载失败', color: '#555555' });
-      setLog('GeoGebra 脚本加载失败，请检查网络。');
-    };
-    document.head.appendChild(script);
   }, [setStatus, setLog]);
 
   useEffect(() => {
