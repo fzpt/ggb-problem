@@ -1,0 +1,496 @@
+{
+  "generatedAt": "2026-09-24T12:06:42.353Z",
+  "image": "D:\\proj\\geogebra\\f9eaf08f-3853-4700-ac8b-990b3779be7f.png",
+  "rounds": [
+    {
+      "model": "glm-5.3-flash",
+      "rounds": 5
+    }
+  ],
+  "skippedPlans": [],
+  "byModel": {
+    "glm-5.3-flash": {
+      "A": {
+        "rounds": 5,
+        "okRounds": 5,
+        "avgWallMs": 516532,
+        "medianWallMs": 509779,
+        "avgTotalTokens": 62266,
+        "medianTotalTokens": 56791,
+        "avgPromptTokens": 3080,
+        "avgCompletionTokens": 59186,
+        "jsonOkRate": 0,
+        "validCommandRate": 0.8,
+        "retriedRounds": 4
+      },
+      "B": {
+        "rounds": 5,
+        "okRounds": 5,
+        "avgWallMs": 627359,
+        "medianWallMs": 623267,
+        "avgTotalTokens": 38035,
+        "medianTotalTokens": 36491,
+        "avgPromptTokens": 2295,
+        "avgCompletionTokens": 35740,
+        "jsonOkRate": 0,
+        "validCommandRate": 1,
+        "retriedRounds": 0
+      }
+    }
+  },
+  "records": [
+    {
+      "model": "glm-5.3-flash",
+      "round": 1,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": true,
+      "commandsCount": 26,
+      "stepsCount": 14,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 299912,
+          "usage": {
+            "prompt_tokens": 904,
+            "completion_tokens": 45722,
+            "total_tokens": 46626,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 45440
+            }
+          },
+          "providerCallId": "20260924183124019b1b38e3224917"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 162873,
+          "usage": {
+            "prompt_tokens": 624,
+            "completion_tokens": 18035,
+            "total_tokens": 18659,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 16905
+            }
+          },
+          "providerCallId": "20260924183624592135848e8a4c05"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 76098,
+          "usage": {
+            "prompt_tokens": 1880,
+            "completion_tokens": 7482,
+            "total_tokens": 9362,
+            "prompt_tokens_details": {
+              "cached_tokens": 576
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 6235
+            }
+          },
+          "providerCallId": "20260924183907683ab3fbe4b642b1"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 1,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 26,
+      "stepsCount": 26,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 519383,
+          "usage": {
+            "prompt_tokens": 2295,
+            "completion_tokens": 27233,
+            "total_tokens": 29528,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 25526
+            }
+          },
+          "providerCallId": "20260924184023526520d06e6f4637"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 2,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": true,
+      "commandsCount": 32,
+      "stepsCount": 11,
+      "validRate": 0.96875,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 49281,
+          "usage": {
+            "prompt_tokens": 904,
+            "completion_tokens": 2949,
+            "total_tokens": 3853,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 2672
+            }
+          },
+          "providerCallId": "2026092418534943ace888eb06409f"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 299739,
+          "usage": {
+            "prompt_tokens": 623,
+            "completion_tokens": 32382,
+            "total_tokens": 33005,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 31119
+            }
+          },
+          "providerCallId": "202609241854384974d2a92c1c48cc"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 160759,
+          "usage": {
+            "prompt_tokens": 1921,
+            "completion_tokens": 18012,
+            "total_tokens": 19933,
+            "prompt_tokens_details": {
+              "cached_tokens": 576
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 16661
+            }
+          },
+          "providerCallId": "2026092418593848ddf7bb239546ae"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 2,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 34,
+      "stepsCount": 34,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 286741,
+          "usage": {
+            "prompt_tokens": 2295,
+            "completion_tokens": 16424,
+            "total_tokens": 18719,
+            "prompt_tokens_details": {
+              "cached_tokens": 2240
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 13977
+            }
+          },
+          "providerCallId": "20260924184902a821021507534d4f"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 3,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": true,
+      "commandsCount": 29,
+      "stepsCount": 8,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 132011,
+          "usage": {
+            "prompt_tokens": 904,
+            "completion_tokens": 7571,
+            "total_tokens": 8475,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 7295
+            }
+          },
+          "providerCallId": "2026092419021903d76190adb14f9f"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 219920,
+          "usage": {
+            "prompt_tokens": 619,
+            "completion_tokens": 26709,
+            "total_tokens": 27328,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 25625
+            }
+          },
+          "providerCallId": "20260924190431bdd93b3ad52c4dcc"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 152859,
+          "usage": {
+            "prompt_tokens": 1796,
+            "completion_tokens": 17769,
+            "total_tokens": 19565,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 16756
+            }
+          },
+          "providerCallId": "20260924190811ca1afefecceb4950"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 3,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 34,
+      "stepsCount": 29,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 907552,
+          "usage": {
+            "prompt_tokens": 2295,
+            "completion_tokens": 49218,
+            "total_tokens": 51513,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 47139
+            }
+          },
+          "providerCallId": "20260924191044c7115c483c1d4a1d"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 4,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 28,
+      "stepsCount": 10,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 145791,
+          "usage": {
+            "prompt_tokens": 904,
+            "completion_tokens": 7581,
+            "total_tokens": 8485,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 7298
+            }
+          },
+          "providerCallId": "20260924193615073cecde484b43dc"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 270936,
+          "usage": {
+            "prompt_tokens": 619,
+            "completion_tokens": 33537,
+            "total_tokens": 34156,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 32441
+            }
+          },
+          "providerCallId": "20260924193840f4f08b8230b543ca"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 4,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 29,
+      "stepsCount": 29,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 623267,
+          "usage": {
+            "prompt_tokens": 2295,
+            "completion_tokens": 34196,
+            "total_tokens": 36491,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 31986
+            }
+          },
+          "providerCallId": "2026092419255117b28f69cefa4886"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 5,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": true,
+      "commandsCount": 26,
+      "stepsCount": 15,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 46770,
+          "usage": {
+            "prompt_tokens": 904,
+            "completion_tokens": 2327,
+            "total_tokens": 3231,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 2037
+            }
+          },
+          "providerCallId": "202609241943119a3af2c524d048cd"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 492785,
+          "usage": {
+            "prompt_tokens": 630,
+            "completion_tokens": 66840,
+            "total_tokens": 67470,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 65337
+            }
+          },
+          "providerCallId": "20260924194358392e01ab95dc49d5"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 72928,
+          "usage": {
+            "prompt_tokens": 2166,
+            "completion_tokens": 9015,
+            "total_tokens": 11181,
+            "prompt_tokens_details": {
+              "cached_tokens": 576
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 7595
+            }
+          },
+          "providerCallId": "20260924195211658b13229be846bc"
+        }
+      ]
+    },
+    {
+      "model": "glm-5.3-flash",
+      "round": 5,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 35,
+      "stepsCount": 35,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 799854,
+          "usage": {
+            "prompt_tokens": 2295,
+            "completion_tokens": 51628,
+            "total_tokens": 53923,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 49034
+            }
+          },
+          "providerCallId": "202609241953248ee1280166294a6f"
+        }
+      ]
+    }
+  ]
+}

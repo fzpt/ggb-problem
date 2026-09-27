@@ -52,6 +52,14 @@ function analyzeImage(base64, providerName, options) {
   return provider.analyzeImage(base64, options);
 }
 
+function analyzeOnce(base64, providerName, options) {
+  const provider = providers[providerName] || providers[config.llm.provider];
+  if (!provider.analyzeOnce) {
+    return Promise.reject(new Error(`Provider ${providerName} does not support one-shot analysis.`));
+  }
+  return provider.analyzeOnce(base64, options);
+}
+
 function analyzeConstruction(text, providerName, options) {
   const provider = providers[providerName] || providers[config.llm.provider];
   if (!provider.analyzeConstruction) {
@@ -88,6 +96,7 @@ module.exports = {
   extractTextFromImage,
   extractGeometryFromText,
   analyzeImage,
+  analyzeOnce,
   analyzeConstruction,
   getTaskEvents: () => kimiProvider.getTaskEvents(),
   testModel,

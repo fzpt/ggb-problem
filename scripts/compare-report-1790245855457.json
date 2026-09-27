@@ -1,0 +1,201 @@
+{
+  "generatedAt": "2026-09-24T10:30:55.457Z",
+  "image": "D:\\proj\\geogebra\\f9eaf08f-3853-4700-ac8b-990b3779be7f.png",
+  "rounds": [
+    {
+      "model": "kimi-k2.6",
+      "rounds": 2
+    }
+  ],
+  "skippedPlans": [],
+  "byModel": {
+    "kimi-k2.6": {
+      "A": {
+        "rounds": 2,
+        "okRounds": 2,
+        "avgWallMs": 654609,
+        "medianWallMs": 654609,
+        "avgTotalTokens": 30507,
+        "medianTotalTokens": 30507,
+        "avgPromptTokens": 2289,
+        "avgCompletionTokens": 28219,
+        "jsonOkRate": 0,
+        "validCommandRate": 1,
+        "retriedRounds": 1
+      },
+      "B": {
+        "rounds": 2,
+        "okRounds": 2,
+        "avgWallMs": 423632,
+        "medianWallMs": 423632,
+        "avgTotalTokens": 19919,
+        "medianTotalTokens": 19919,
+        "avgPromptTokens": 2294,
+        "avgCompletionTokens": 17625,
+        "jsonOkRate": 0,
+        "validCommandRate": 1,
+        "retriedRounds": 0
+      }
+    }
+  },
+  "records": [
+    {
+      "model": "kimi-k2.6",
+      "round": 1,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 24,
+      "stepsCount": 7,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 160155,
+          "usage": {
+            "prompt_tokens": 902,
+            "completion_tokens": 6090,
+            "total_tokens": 6992,
+            "completion_tokens_details": {
+              "reasoning_tokens": 5860
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f375e781dfd2c45d1bc7"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 486436,
+          "usage": {
+            "prompt_tokens": 587,
+            "completion_tokens": 17588,
+            "total_tokens": 18175,
+            "completion_tokens_details": {
+              "reasoning_tokens": 16971
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f4150db3ba9824531d63"
+        }
+      ]
+    },
+    {
+      "model": "kimi-k2.6",
+      "round": 1,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 33,
+      "stepsCount": 27,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 431574,
+          "usage": {
+            "prompt_tokens": 2294,
+            "completion_tokens": 17476,
+            "total_tokens": 19770,
+            "completion_tokens_details": {
+              "reasoning_tokens": 16166
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f5fc3836110aea1893c9"
+        }
+      ]
+    },
+    {
+      "model": "kimi-k2.6",
+      "round": 2,
+      "arm": "A",
+      "armOk": true,
+      "error": null,
+      "retried": true,
+      "commandsCount": 37,
+      "stepsCount": 11,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 82777,
+          "usage": {
+            "prompt_tokens": 902,
+            "completion_tokens": 3912,
+            "total_tokens": 4814,
+            "completion_tokens_details": {
+              "reasoning_tokens": 3697
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f94b514695fd9c19b120"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 266843,
+          "usage": {
+            "prompt_tokens": 570,
+            "completion_tokens": 13491,
+            "total_tokens": 14061,
+            "completion_tokens_details": {
+              "reasoning_tokens": 12520
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f99d0db3ba9824532005"
+        },
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 313007,
+          "usage": {
+            "prompt_tokens": 1616,
+            "completion_tokens": 15356,
+            "total_tokens": 16972,
+            "cached_tokens": 512,
+            "completion_tokens_details": {
+              "reasoning_tokens": 14436
+            },
+            "prompt_tokens_details": {
+              "cached_tokens": 512
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4faa81b286a4656220b7f"
+        }
+      ]
+    },
+    {
+      "model": "kimi-k2.6",
+      "round": 2,
+      "arm": "B",
+      "armOk": true,
+      "error": null,
+      "retried": false,
+      "commandsCount": 32,
+      "stepsCount": 26,
+      "validRate": 1,
+      "calls": [
+        {
+          "ok": true,
+          "error": null,
+          "wallMs": 415689,
+          "usage": {
+            "prompt_tokens": 2294,
+            "completion_tokens": 17774,
+            "total_tokens": 20068,
+            "cached_tokens": 1585,
+            "completion_tokens_details": {
+              "reasoning_tokens": 16177
+            },
+            "prompt_tokens_details": {
+              "cached_tokens": 1585
+            }
+          },
+          "providerCallId": "chatcmpl-6ab4f7ab5364646d40fbf36c"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>识别/作图 两步 vs 一次 对比报告</title>
+<style>
+body{font-family:system-ui,'Segoe UI',sans-serif;margin:24px;color:#222;font-size:14px}
+h1{font-size:18px} h2{font-size:15px;margin-top:24px}
+table{border-collapse:collapse;margin-top:8px;width:100%}
+th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}
+th{background:#f3f3f3}
+.meta{color:#666;font-size:12px}
+.skip{color:#a00}
+td:last-child{font-family:Consolas,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<h1>识别/作图"两步 vs 一次"对比报告</h1>
+<p class="meta">生成时间：2026-09-24T10:30:55.457Z　图片：D:\proj\geogebra\f9eaf08f-3853-4700-ac8b-990b3779be7f.png</p>
+
+<h2>汇总（每臂 totals；耗时 ms，tokens 为各次调用之和）</h2>
+<table>
+<tr><th>模型</th><th>方案</th><th>成功轮数</th><th>平均耗时</th><th>中位耗时</th><th>平均总tokens</th><th>中位总tokens</th><th>平均prompt</th><th>平均completion</th><th>指令全合法</th><th>重试轮数</th></tr>
+<tr>
+        <td>kimi-k2.6</td>
+        <td>两步流程</td>
+        <td>2/2</td>
+        <td>654,609</td>
+        <td>654,609</td>
+        <td>30,507</td>
+        <td>30,507</td>
+        <td>2,289</td>
+        <td>28,219</td>
+        <td>100%</td>
+        <td>1</td>
+      </tr>
+<tr>
+        <td>kimi-k2.6</td>
+        <td>合并一次</td>
+        <td>2/2</td>
+        <td>423,632</td>
+        <td>423,632</td>
+        <td>19,919</td>
+        <td>19,919</td>
+        <td>2,294</td>
+        <td>17,625</td>
+        <td>100%</td>
+        <td>0</td>
+      </tr>
+</table>
+<h2>明细（每轮每次调用）</h2>
+<table>
+<tr><th>模型</th><th>轮</th><th>方案</th><th>结果</th><th>重试</th><th>指令数</th><th>合法率</th><th>调用明细</th></tr>
+<tr>
+      <td>kimi-k2.6</td>
+      <td>1</td>
+      <td>两步流程</td>
+      <td>ok</td>
+      <td>否</td>
+      <td>24</td>
+      <td>100%</td>
+      <td>#1 ok 160,155ms tok=6,992<br>#2 ok 486,436ms tok=18,175</td>
+    </tr>
+<tr>
+      <td>kimi-k2.6</td>
+      <td>1</td>
+      <td>合并一次</td>
+      <td>ok</td>
+      <td>否</td>
+      <td>33</td>
+      <td>100%</td>
+      <td>#1 ok 431,574ms tok=19,770</td>
+    </tr>
+<tr>
+      <td>kimi-k2.6</td>
+      <td>2</td>
+      <td>两步流程</td>
+      <td>ok</td>
+      <td>是</td>
+      <td>37</td>
+      <td>100%</td>
+      <td>#1 ok 82,777ms tok=4,814<br>#2 ok 266,843ms tok=14,061<br>#3 ok 313,007ms tok=16,972</td>
+    </tr>
+<tr>
+      <td>kimi-k2.6</td>
+      <td>2</td>
+      <td>合并一次</td>
+      <td>ok</td>
+      <td>否</td>
+      <td>32</td>
+      <td>100%</td>
+      <td>#1 ok 415,689ms tok=20,068</td>
+    </tr>
+</table>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadGgbScript } from '../lib/ggb-script';
+import { runCommandLine } from '../lib/ggb';
 
 const LS_KEY = 'ggb-console-script';
 
@@ -75,9 +76,15 @@ export default function CommandConsole() {
         const xmax = api.getXmax?.();
         const ymin = api.getYmin?.();
         const ymax = api.getYmax?.();
+        // GeoGebra 注入时会给容器写死内联尺寸，getBoundingClientRect 会拿到
+        // 过期的内联值；先清空内联样式让 CSS flex 布局生效，再测量、再写回
+        stage.style.width = '';
+        stage.style.height = '';
         const rect = stage.getBoundingClientRect();
         const w = Math.max(320, Math.floor(rect.width));
         const h = Math.max(320, Math.floor(rect.height));
+        stage.style.width = `${w}px`;
+        stage.style.height = `${h}px`;
         api.setSize(w, h);
         if (xmin != null && xmax != null && ymin != null && ymax != null) {
           api.setCoordSystem(xmin, xmax, ymin, ymax);
@@ -119,7 +126,7 @@ export default function CommandConsole() {
       const line = raw.trim().replace(/;+\s*$/, '');
       if (!line || line.startsWith('//') || line.startsWith('#')) return;
       try {
-        if (api.evalCommand(normalizeLine(line))) {
+        if (runCommandLine(api, normalizeLine(line))) {
           ok += 1;
         } else {
           failures.push(`第 ${i + 1} 行执行失败: ${line}`);

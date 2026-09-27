@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Kimi 直接生成 - 效果查看</title>
+<script src="https://www.geogebra.org/apps/deployggb.js"></script>
+<style>
+body{font-family:system-ui,'Segoe UI',sans-serif;margin:16px;color:#1a1a1a;font-size:14px}
+h1{font-size:16px}
+.meta{color:#666;font-size:12px;margin-bottom:8px}
+.layout{display:flex;gap:12px;align-items:flex-start}
+.left{width:360px;flex:none}
+.right{flex:1;min-width:0}
+label{display:block;font-weight:600;margin:8px 0 4px;font-size:13px}
+pre{white-space:pre-wrap;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:12.5px;max-height:200px;overflow:auto;margin:0}
+#ggb-wrap{border:1px solid #ccc;border-radius:4px}
+#errs{color:#a00;font-size:12px;margin-top:6px;white-space:pre-wrap}
+img{max-width:100%;border:1px solid #ccc;border-radius:4px}
+.copy-btn{margin-top:6px;padding:4px 10px;font-size:12px;border:1px solid #999;border-radius:4px;background:#fff;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>Kimi 直接生成：题目 + 作图指令（无额外约束）</h1>
+<p class="meta">模型 kimi-k2.6 ｜ 耗时 55.7s ｜ prompt 512 / completion 3515 / total 4027 tokens ｜ 可构造性：可以直接作图 ｜ providerCallId chatcmpl-6ab681b23012d6a0e75936ef ｜ 2026-09-25T14:15:06.236Z</p>
+<div class="layout">
+  <div class="left">
+    
+    
+    <label>原始识别文字</label>
+    <pre>钝角三角形ABC中，A=(-2,4)，B=(0,0)，C=(6,0)，角B为钝角。过A作BC的垂线，垂足为H。连接AH、BH、CH。</pre>
+    <label>完善后题目</label>
+    <pre>钝角三角形ABC中，A=(-2,4)，B=(0,0)，C=(6,0)，角B为钝角。过点A作直线BC的垂线，垂足为H。连接线段AH、BH、CH。</pre>
+    <label>作图指令（11 条）</label>
+    <pre>A = (-2, 4)
+B = (0, 0)
+C = (6, 0)
+auxLineBC = Line(B, C)
+auxPerpAH = PerpendicularLine(A, auxLineBC)
+H = Intersect(auxPerpAH, auxLineBC)
+Segment(A, H)
+Segment(B, H)
+Segment(C, H)
+SetVisibleInView(auxLineBC, 1, false)
+SetVisibleInView(auxPerpAH, 1, false)</pre>
+    <button class="copy-btn" onclick="copyCommands()">复制指令（可直接粘贴到指令控制台）</button>
+    <div id="errs"></div>
+  </div>
+  <div class="right">
+    <div id="ggb-wrap"></div>
+  </div>
+</div>
+<script>
+var commands = ["A = (-2, 4)","B = (0, 0)","C = (6, 0)","auxLineBC = Line(B, C)","auxPerpAH = PerpendicularLine(A, auxLineBC)","H = Intersect(auxPerpAH, auxLineBC)","Segment(A, H)","Segment(B, H)","Segment(C, H)","SetVisibleInView(auxLineBC, 1, false)","SetVisibleInView(auxPerpAH, 1, false)"];
+function copyCommands() {
+  var text = commands.join('\n');
+  var done = function () {
+    var b = document.querySelector('.copy-btn');
+    b.textContent = '已复制，可粘贴到指令控制台';
+    setTimeout(function () { b.textContent = '复制指令（可直接粘贴到指令控制台）'; }, 2000);
+  };
+  var fallback = function () {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      done();
+    } catch (e) {
+      window.prompt('自动复制失败，请手动复制：', text);
+    }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+var params = {
+  appName: 'geometry',
+  width: window.innerWidth - 420,
+  height: 640,
+  showToolBar: false,
+  showAlgebraInput: false,
+  showMenuBar: false,
+  appletOnLoad: function (api) {
+    var errs = [];
+    commands.forEach(function (c) {
+      try {
+        if (!api.evalCommand(c)) errs.push(c + '  -> 返回 false');
+      } catch (e) {
+        errs.push(c + '  -> ' + e.message);
+      }
+    });
+    if (errs.length) {
+      document.getElementById('errs').textContent = '执行失败的指令：
+' + errs.join('
+');
+    }
+  }
+};
+new GGBApplet(params, true).inject('ggb-wrap');
+</script>
+</body>
+</html>

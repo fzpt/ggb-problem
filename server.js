@@ -162,6 +162,24 @@ app.post('/api/construction-analysis', requireAuth, async (req, res, next) => {
   }
 });
 
+// 合并一步：识别 + 完善题目 + 可构造性判定 + 作图指令，单次 LLM 调用
+app.post('/api/analyze-once', requireAuth, async (req, res, next) => {
+  try {
+    const { image, text, provider } = req.body || {};
+    if (!image && !text) {
+      return res.status(400).json({ error: 'Image or text is required' });
+    }
+    const base64 = image ? stripDataUrl(image) : '';
+    const result = await providers.analyzeOnce(base64, provider, {
+      userId: req.userId,
+      text,
+    });
+    res.json({ ...result, provider: provider || config.llm.provider });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Refine commands
 app.post('/api/refine', requireAuth, async (req, res, next) => {
   try {
@@ -324,11 +342,161 @@ app.get('/api/admin/logs', requireAdmin, (req, res, next) => {
   }
 });
 
+// AI 调用计费核算：明细 + 按模型汇总（days=0 全部，默认 30 天）
+app.get('/api/admin/ai-calls', requireAdmin, (req, res, next) => {
+  try {
+    const days = Math.max(Number(req.query.days) || 0, 0);
+    const limit = Number(req.query.limit) || 200;
+    const { calls, summary } = db.queryAiCalls({ days, limit });
+    res.json({ calls, summary });
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.post('/api/state', requireAuth, (req, res, next) => {
   try {
     const { problems, activeProblemId } = req.body || {};
     db.saveState(req.userId, Array.isArray(problems) ? problems : [], activeProblemId || null);
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------- 每题增删改（增量同步，替代全量替换） ----------
+// 客户端任何题目变更都收敛为对单题的 PUT/DELETE，杜绝多标签页
+// 全量替换互相覆盖导致的数据丢失。
+app.put('/api/problems/:id', requireAuth, (req, res, next) => {
+  try {
+    const p = req.body || {};
+    if (!p.id || p.id !== req.params.id) {
+      return res.status(400).json({ error: '题目 ID 与路径不一致' });
+    }
+    db.upsertProblem(req.userId, p);
+    console.log(`[save] ${new Date().toISOString()} user=${req.userId} problem=${p.id} name=${p.name || ''}`);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/problems/:id', requireAuth, (req, res, next) => {
+  try {
+    db.deleteProblemById(req.userId, req.params.id);
+    console.log(`[delete] ${new Date().toISOString()} user=${req.userId} problem=${req.params.id}`);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/state/active', requireAuth, (req, res, next) => {
+  try {
+    db.setActiveProblemId(req.userId, (req.body || {}).activeProblemId || null);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------- 题目编辑锁 ----------
+// 进入编辑态前必须先拿到锁；被其他页面持有时返回 409 和持有者信息
+app.post('/api/problems/:id/lock', requireAuth, (req, res, next) => {
+  try {
+    const { instanceId, force } = req.body || {};
+    if (!instanceId) {
+      return res.status(400).json({ error: 'instanceId is required' });
+    }
+    const r = db.acquireLock(req.userId, req.params.id, instanceId, req.user.email, !!force);
+    if (r.ok) {
+      return res.json(r);
+    }
+    return res.status(409).json(r);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/problems/:id/unlock', requireAuth, (req, res, next) => {
+  try {
+    db.releaseLock(req.params.id, (req.body || {}).instanceId || '');
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/locks', requireAuth, (req, res, next) => {
+  try {
+    res.json({ locks: db.listLocks(req.userId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------- 题目图形版本快照 ----------
+app.get('/api/problems/:id/versions', requireAuth, (req, res, next) => {
+  try {
+    res.json({ versions: db.listProblemVersions(req.userId, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/problems/:id/versions', requireAuth, (req, res, next) => {
+  try {
+    const { ggbState, force } = req.body || {};
+    const result = db.insertProblemVersion(req.userId, req.params.id, ggbState, { force: !!force });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/problems/:id/versions/:vid', requireAuth, (req, res, next) => {
+  try {
+    const row = db.getProblemVersion(req.userId, req.params.id, req.params.vid);
+    if (!row) return res.status(404).json({ error: '版本不存在' });
+    res.json({ id: row.id, created_at: row.created_at, ggbState: row.ggb_state });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/problems/:id/versions/:vid', requireAuth, (req, res, next) => {
+  try {
+    const ok = db.deleteProblemVersion(req.userId, req.params.id, req.params.vid);
+    if (!ok) return res.status(404).json({ error: '版本不存在' });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 题目属性组合查询（年份/地区/类型/难度上限/知识点，均可选；限定当前用户）
+app.get('/api/problems/query', requireAuth, (req, res, next) => {
+  try {
+    const { year, region, type, maxDifficulty, tag } = req.query || {};
+    res.json({ problems: db.queryProblems(req.userId, { year, region, type, maxDifficulty, tag }) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 知识点词表：全局词表 + 当前用户用过的词
+app.get('/api/knowledge-tags', requireAuth, (req, res, next) => {
+  try {
+    res.json(db.getKnowledgeTags(req.userId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/knowledge-tags', requireAuth, (req, res, next) => {
+  try {
+    const { name, category } = req.body || {};
+    res.json(db.createKnowledgeTag(name, category));
   } catch (err) {
     next(err);
   }

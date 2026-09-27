@@ -1,7 +1,9 @@
 const https = require('node:https');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const config = require('../config');
+const db = require('../db');
 const ggb = require('../lib/ggb-commands');
 const settings = require('../lib/settings');
 const zhipu = require('./zhipu');
@@ -10,11 +12,13 @@ const GG_REFERENCE = ggb.referenceText();
 
 const DEFAULT_MODEL = 'kimi-k2.7-code';
 
-// 统一出口：按模型 id 分发到 Kimi 或智谱，模型来自管理后台设置
-function chatCompletion(messages, options = {}) {
+// 统一出口：按模型 id 分发到 Kimi 或智谱，模型来自管理后台设置。
+// chatCompletionDetailed 额外返回 usage 等计费信息（对比测试/核算用）。
+function chatCompletionDetailed(messages, options = {}) {
   const model = options.model || settings.resolveModelId(options.taskType || 'text');
   const startedAt = Date.now();
   const logBase = {
+    callId: crypto.randomUUID(),
     model,
     taskType: options.taskType || 'text',
     userId: options.userId,
@@ -30,12 +34,14 @@ function chatCompletion(messages, options = {}) {
     };
     return zhipu
       .chat(settings.getSettings().keysZhipu, model, messages, hooks)
-      .then((content) => {
-        llmLogger.log({ ...logBase, ok: true, response: content, durationMs: Date.now() - startedAt });
-        return content;
+      .then(({ content, providerCallId, usage }) => {
+        db.insertAiCall({ callId: logBase.callId, providerCallId, userId: logBase.userId, model, taskType: logBase.taskType, usage, ok: true, durationMs: Date.now() - startedAt });
+        llmLogger.log({ ...logBase, ok: true, response: content, providerCallId, durationMs: Date.now() - startedAt });
+        return { content, providerCallId, usage, callId: logBase.callId };
       })
       .catch((err) => {
-        llmLogger.log({ ...logBase, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+      db.insertAiCall({ callId: logBase.callId, providerCallId: err.providerCallId || null, userId: logBase.userId, model, taskType: logBase.taskType, usage: null, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+        llmLogger.log({ ...logBase, ok: false, error: err.message, providerCallId: err.providerCallId, durationMs: Date.now() - startedAt });
         throw err;
       });
   }
@@ -44,15 +50,21 @@ function chatCompletion(messages, options = {}) {
     return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
   }
   return callKimi(apiKey, model, messages, options.userId).then(
-    (content) => {
-      llmLogger.log({ ...logBase, ok: true, response: content, durationMs: Date.now() - startedAt });
-      return content;
+    ({ content, providerCallId, usage }) => {
+      db.insertAiCall({ callId: logBase.callId, providerCallId, userId: logBase.userId, model, taskType: logBase.taskType, usage, ok: true, durationMs: Date.now() - startedAt });
+      llmLogger.log({ ...logBase, ok: true, response: content, providerCallId, durationMs: Date.now() - startedAt });
+      return { content, providerCallId, usage, callId: logBase.callId };
     },
     (err) => {
-      llmLogger.log({ ...logBase, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+      db.insertAiCall({ callId: logBase.callId, providerCallId: err.providerCallId || null, userId: logBase.userId, model, taskType: logBase.taskType, usage: null, ok: false, error: err.message, durationMs: Date.now() - startedAt });
+      llmLogger.log({ ...logBase, ok: false, error: err.message, providerCallId: err.providerCallId, durationMs: Date.now() - startedAt });
       throw err;
     }
   );
+}
+
+function chatCompletion(messages, options = {}) {
+  return chatCompletionDetailed(messages, options).then((r) => r.content);
 }
 
 const SYSTEM_PROMPT_JSON = `You are a geometry-to-JSON converter. Your only job is to read a Chinese geometry problem and output a single valid JSON object in the exact schema below. Do not output any other text, explanations, markdown fences, or reasoning.
@@ -170,6 +182,35 @@ ${GG_REFERENCE}
 11. Final verification: double-check every command against the allowed GeoGebra Geometry API list above. Any command not in the list must be replaced with an equivalent allowed command or omitted with a // comment.
 `;
 
+// 合并一步：识别 + 完善题目 + 可构造性判定 + 作图指令，单次调用完成。
+// 提示词历经多轮实测调优（scripts/kimi-direct-test.js），约束项均来自真实踩坑记录。
+const SYSTEM_PROMPT_ONESHOT = `读取图片或文字中的几何题，输出一个 JSON 对象：
+{"rawText":"识别出的题目原文","completedText":"补全点所属线段后的完整题目","constructibility":"direct | conclusion | impossible","constructNote":"constructibility 为 conclusion 时的说明，其他情况为空字符串","commands":["GeoGebra Geometry 作图指令，每行一条"]}。
+只输出 JSON，不要输出其他内容。
+
+只做作图，不要证明、验证或解答题目。
+
+作图前必须先判断能否通过作图方式完成，constructibility 取值：
+- direct：可以直接按题意作图
+- conclusion：直接作图困难，需要把题目结论（或部分结论）当作已知条件来定位点
+- impossible：无法用 GeoGebra Geometry 作图
+constructibility 为 conclusion 时，必须在 constructNote 中说明把哪个结论当作了条件。
+
+题目文字处理：completedText 中如果出现"如图""如图所示"等引用图片的字样，必须去掉。
+
+作图要求：
+- 确定题目中的自由点和从动点；从动点必须用几何关系（公式/约束）定位，不能写死数值坐标。条件复杂时，可以把结论当作条件进行点的定位。
+- 作图过程增加的辅助元素（辅助线、辅助圆等）最后都要用 SetVisibleInView(名称, 1, false) 隐藏。
+
+GeoGebra Geometry 应用的实测限制（必须遵守）：
+- 画平行线用 Line(点, 已有的线)，没有 Parallel 命令
+- 外接圆用 Circle(A, B, C)，没有 Circumcircle 命令
+- 中垂线用 PerpendicularBisector，垂线用 PerpendicularLine
+- 圆弧命令名是 CircularArc，不是 CircleArc
+- Polyline 是一个词，不是 PolyLine
+- 过点向线段作垂线求垂足时：垂足必须用辅助直线求交（lineAB = Line(A,B)；H = Intersect(PerpendicularLine(P, lineAB), lineAB)），不要和线段求交（垂足在线段外时线段求交会失败）；辅助直线按上面的隐藏规则处理
+- 线段与其他直线或曲线求交点时：必须用辅助直线代替线段求交（lineAB = Line(A, B)；P = Intersect(lineAB, 另一对象)），不要与线段求交（交点落在线段延长线上时会失败）；得到交点后，必须把交点与线段两个端点分别连线 Segment(A, P)、Segment(P, B)，使交点在线段上可见；辅助直线按上面的隐藏规则处理`;
+
 const SYSTEM_PROMPT_IMAGE_ANALYZE = `You are a geometry problem OCR and completion assistant. Analyze the input (a photo of a Chinese geometry problem, or plain problem text) and output a single valid JSON object with exactly two fields:
 
 {
@@ -178,18 +219,27 @@ const SYSTEM_PROMPT_IMAGE_ANALYZE = `You are a geometry problem OCR and completi
 }
 
 Rules for completedText:
-1. Keep the original meaning and wording; do not solve the problem.
+1. Keep the original meaning and wording; do not prove or solve the problem.
 2. Fill in missing implicit information, especially which segments/lines each named point belongs to (e.g. if a point is stated without saying which segment it lies on, state it explicitly; if a triangle is mentioned, spell out its connecting segments).
 3. If a letter or symbol is ambiguous from OCR, choose the geometrically sensible reading.
-4. Output ONLY valid JSON. No markdown fences. No explanations.`;
+4. Remove figure references such as "如图" or "如图所示" from completedText (the figure is generated, not referenced).
+5. Output ONLY valid JSON. No markdown fences. No explanations.`;
 
-const SYSTEM_PROMPT_CONSTRUCTION = `You are a GeoGebra Geometry construction planner, NEVER prove, verify, or solve the problem. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly two fields,Output ONLY valid JSON. No markdown fences. No explanations:
+const SYSTEM_PROMPT_CONSTRUCTION = `You are a GeoGebra Geometry construction planner, NEVER prove, verify, or solve the problem. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly four fields,Output ONLY valid JSON. No markdown fences. No explanations:
 {
   "steps": [
     {"order": 1, "object": "A, B, C", "type": "自由点", "dependencies": "无", "constraint": "仅形状要求: AB > BC, C 在直线 AB 上方"}
   ],
-  "commands": ["A = (0, 0)", "B = (6, 0)", "Segment(A, B)"]
+  "commands": ["A = (0, 0)", "B = (6, 0)", "Segment(A, B)"],
+  "constructibility": "direct | conclusion | impossible",
+  "constructNote": "constructibility 为 conclusion 时的说明，其他情况为空字符串"
 }
+
+Before planning, judge how the figure can be constructed, "constructibility" value:
+- direct: the figure can be built directly from the problem conditions
+- conclusion: direct construction is too difficult; some conclusion of the problem must be used as a given condition to position points
+- impossible: cannot be drawn in GeoGebra Geometry
+When constructibility is conclusion, constructNote MUST explain which conclusion was used as a condition.
 
 The "steps" array describes the construction order analysis, one row per construction stage:
 - order: 1-based integer
@@ -201,9 +251,19 @@ The "steps" array describes the construction order analysis, one row per constru
 The "commands" array is a GeoGebra Geometry script that realizes the construction:
 1. ONLY the initial free points (points with no geometric constraint, e.g. the triangle's vertices) may use numeric coordinates like "A = (0, 0)". Usually just 2-4 free points.
 2. Every OTHER point must be constructed through a geometric CONSTRAINT relationship. NEVER assign precomputed numeric coordinates to a constrained point.
-3. Then draw the final required segments/lines/circles/polygons.
-4. Auxiliary/intermediate construction products (helper circles, rays, temporary points that are NOT part of the final figure) must be hidden: immediately after creating such an object named X, append the line "SetVisibleInView(X, 1, false)".
-5. Give explicit names to auxiliary objects (e.g. c1, r1, E) so they can be hidden.`;
+3. If the conditions are too complex, you may use the problem's conclusion (or part of it) as a given condition to position points; mark constructibility as conclusion and explain in constructNote.
+4. Then draw the final required segments/lines/circles/polygons.
+5. Auxiliary/intermediate construction products (helper circles, rays, temporary points that are NOT part of the final figure) must be hidden: immediately after creating such an object named X, append the line "SetVisibleInView(X, 1, false)".
+6. Give explicit names to auxiliary objects (e.g. c1, r1, E) so they can be hidden.
+
+Verified GeoGebra Geometry command pitfalls (must obey):
+- Parallel lines: use Line( <Point>, <Existing Line> ); there is NO Parallel command
+- Circumcircle: use Circle(A, B, C); there is NO Circumcircle command
+- Perpendicular bisector is PerpendicularBisector, perpendicular line is PerpendicularLine
+- Arc command name is CircularArc, not CircleArc
+- Polyline is one word, not PolyLine
+- Foot of perpendicular from a point to a segment: intersect with an auxiliary LINE (lineAB = Line(A,B); H = Intersect(PerpendicularLine(P, lineAB), lineAB)), NOT with the segment (intersecting a segment fails when the foot lies outside the segment); hide the auxiliary line as above.
+- Segment intersecting another line or curve: ALWAYS intersect an auxiliary line through the segment's endpoints (lineAB = Line(A, B); P = Intersect(lineAB, other)), NEVER the segment itself (intersecting a segment fails when the crossing point lies on the segment's extension). After obtaining the intersection P, connect P to BOTH endpoints of the segment: Segment(A, P) and Segment(P, B), so the intersection is visibly joined on the segment; hide the auxiliary line as above.`;
 
 // Per-user queue and current request tracking.
 const userQueues = new Map();
@@ -326,7 +386,19 @@ async function runWithRetry(fn, retries = 3, delayMs = 1500) {
 function callKimi(apiKey, model, messages, userId) {
   const state = getUserQueueState(userId);
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({ model, messages });
+    const payload = JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } });
+    // 响应头先于 body 到达；超时/断线时 body 读不到，但这里已能拿到服务商的请求 ID
+    let providerCallId = null;
+    let usage = null;
+    let contentParts = [];
+    let settled = false;
+
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      if (providerCallId && !err.providerCallId) err.providerCallId = providerCallId;
+      reject(err);
+    };
 
     state.currentRequest = https.request({
       hostname: 'api.moonshot.cn',
@@ -339,29 +411,62 @@ function callKimi(apiKey, model, messages, userId) {
         'Content-Length': Buffer.byteLength(payload)
       }
     }, (response) => {
-      const chunks = [];
-      response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => {
-        state.currentRequest = null;
-        const body = Buffer.concat(chunks).toString('utf-8');
-        try {
-          const parsed = JSON.parse(body);
-          if (parsed.error) {
-            reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          } else if (parsed.choices && parsed.choices[0] && parsed.choices[0].message) {
-            resolve(parsed.choices[0].message.content);
-          } else {
-            reject(new Error('Unexpected Kimi response: ' + body.slice(0, 200)));
+      providerCallId = response.headers['x-request-id'] || response.headers['x-msh-request-id'] || null;
+      if (response.statusCode && response.statusCode >= 400) {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf-8');
+          let msg = body.slice(0, 300);
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed.error) msg = parsed.error.message || JSON.stringify(parsed.error);
+          } catch { /* keep raw body */ }
+          const e = new Error(`Kimi HTTP ${response.statusCode}: ${msg}`);
+          e.providerCallId = providerCallId;
+          fail(e);
+        });
+        return;
+      }
+      // SSE 流：data: 行，以 [DONE] 结束；首个 chunk 的 id 即调用 ID
+      let buf = '';
+      response.on('data', (chunk) => {
+        buf += chunk.toString('utf-8');
+        let idx;
+        while ((idx = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') {
+            settled = true;
+            state.currentRequest = null;
+            resolve({ content: contentParts.join(''), providerCallId, usage });
+            return;
           }
-        } catch (error) {
-          reject(new Error('Failed to parse Kimi response: ' + error.message));
+          try {
+            const j = JSON.parse(data);
+            if (j.id && !providerCallId) providerCallId = j.id;
+            if (j.usage) usage = j.usage;
+            const delta = j.choices && j.choices[0] && j.choices[0].delta;
+            if (delta && typeof delta.content === 'string') contentParts.push(delta.content);
+          } catch {
+            // 忽略不完整的 chunk 行
+          }
         }
+      });
+      response.on('end', () => {
+        if (settled) return;
+        // 未收到 [DONE] 连接就结束了：内容可能不完整，但仍返回已收部分
+        settled = true;
+        state.currentRequest = null;
+        resolve({ content: contentParts.join(''), providerCallId, usage });
       });
     });
 
     state.currentRequest.on('error', (err) => {
       state.currentRequest = null;
-      reject(err);
+      fail(err);
     });
     // 超时必须销毁连接，否则僵尸请求会一直占用组织唯一的并发槽位
     state.currentRequest.setTimeout(300000, () => {
@@ -528,7 +633,8 @@ function refineFromText(text, currentCommands, history, options = {}) {
 }
 
 function callAnalyzeImage(base64, options = {}) {
-  const model = options.model || settings.resolveModelId('vision');
+  const hasImage = !!base64;
+  const model = options.model || settings.resolveModelId(hasImage ? 'vision' : 'text');
   const userId = options.userId;
 
   const content = [];
@@ -560,7 +666,65 @@ function callAnalyzeImage(base64, options = {}) {
 }
 
 function analyzeImage(base64, options = {}) {
-  return enqueue(() => callAnalyzeImage(base64, options), options.userId, { type: '图片识别', taskType: 'vision', model: options.model });
+  const hasImage = !!base64;
+  const model = options.model || settings.resolveModelId(hasImage ? 'vision' : 'text');
+  return enqueue(
+    () => callAnalyzeImage(base64, { ...options, model }),
+    options.userId,
+    { type: hasImage ? '图片识别' : '文字识别', taskType: hasImage ? 'vision' : 'text', model }
+  );
+}
+
+function callAnalyzeOnce(base64, options = {}) {
+  const hasImage = !!base64;
+  const model = options.model || settings.resolveModelId(hasImage ? 'vision' : 'text');
+  const userId = options.userId;
+
+  const content = [];
+  if (base64) {
+    content.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } });
+    content.push({ type: 'text', text: '识别这道题并生成作图指令。' });
+  } else {
+    content.push({ type: 'text', text: '识别并处理下面的几何题，生成作图指令：\n' + (options.text || '') });
+  }
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT_ONESHOT },
+    { role: 'user', content },
+  ];
+
+  return (async () => {
+    const taskType = hasImage ? 'vision' : 'text';
+    let contentText = await chatCompletion(messages, { model, userId, taskType });
+    let parsed = parseJsonContent(contentText);
+    let validation = ggb.validateCommands(parsed.commands);
+
+    if (validation.invalid.length > 0) {
+      messages.push({ role: 'assistant', content: contentText });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false) });
+      contentText = await chatCompletion(messages, { model, userId, taskType });
+      parsed = parseJsonContent(contentText);
+      validation = ggb.validateCommands(parsed.commands);
+    }
+
+    return {
+      rawText: parsed.rawText || '',
+      completedText: parsed.completedText || parsed.rawText || '',
+      constructibility: parsed.constructibility || '',
+      constructNote: parsed.constructNote || '',
+      commands: Array.isArray(parsed.commands) ? parsed.commands : [],
+      warnings: validation.invalid.map((x) => `${x.item}: ${x.reason}`),
+    };
+  })();
+}
+
+function analyzeOnce(base64, options = {}) {
+  const hasImage = !!base64;
+  const model = options.model || settings.resolveModelId(hasImage ? 'vision' : 'text');
+  return enqueue(
+    () => callAnalyzeOnce(base64, { ...options, model }),
+    options.userId,
+    { type: hasImage ? '识别并生成' : '文字生成', taskType: hasImage ? 'vision' : 'text', model }
+  );
 }
 
 function callAnalyzeConstruction(text, options = {}) {
@@ -593,7 +757,12 @@ function callAnalyzeConstruction(text, options = {}) {
       constraint: s.constraint || ''
     })) : [];
 
-    const result = { steps, commands: validation.valid };
+    const result = {
+      steps,
+      commands: validation.valid,
+      constructibility: parsed.constructibility || '',
+      constructNote: parsed.constructNote || '',
+    };
     if (validation.invalid.length > 0) {
       result.warnings = validation.invalid.map(v => v.reason);
     }
@@ -609,8 +778,12 @@ module.exports = {
   extractFromText,
   refineFromText,
   analyzeImage,
+  analyzeOnce,
   analyzeConstruction,
   chatCompletion,
+  chatCompletionDetailed,
+  SYSTEM_PROMPT_IMAGE_ANALYZE,
+  SYSTEM_PROMPT_CONSTRUCTION,
   getTaskEvents,
   runTask: enqueue,
   cancelCurrentRequest

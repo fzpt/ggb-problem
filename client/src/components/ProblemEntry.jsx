@@ -1,6 +1,50 @@
 import { useCallback, useRef, useState } from 'react';
-import { useApp } from '../store/AppContext';
-import { analyzeProblemImage, analyzeConstruction } from '../services/api';
+import { useApp, DIFFICULTY_LABELS, EXAM_TYPES } from '../store/AppContext';
+import { analyzeProblemImage, analyzeConstruction, analyzeOnce } from '../services/api';
+
+const CONSTRUCT_LABELS = { direct: '可以直接作图', conclusion: '结论当作条件', impossible: '无法作图' };
+
+// 知识点标签多选：词表 chips 选择 + 输入新建
+function TagPicker({ vocab, selected, onChange }) {
+  const [input, setInput] = useState('');
+  const add = (name) => {
+    const n = name.trim();
+    if (!n || selected.includes(n)) return;
+    onChange([...selected, n]);
+    setInput('');
+  };
+  const available = vocab.filter((t) => !selected.includes(t));
+  return (
+    <div className="tag-picker">
+      <div className="tag-selected">
+        {selected.length === 0 && <span className="text-muted tag-empty">未选择知识点</span>}
+        {selected.map((t) => (
+          <span key={t} className="tag-chip selected">
+            {t}
+            <button type="button" className="tag-remove" onClick={() => onChange(selected.filter((x) => x !== t))}>×</button>
+          </span>
+        ))}
+      </div>
+      <div className="tag-add-row">
+        <input
+          className="tag-input"
+          placeholder="输入新知识点，回车添加"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(input); } }}
+        />
+        <button type="button" className="button" onClick={() => add(input)} disabled={!input.trim()}>添加</button>
+      </div>
+      {available.length > 0 && (
+        <div className="tag-vocab">
+          {available.map((t) => (
+            <button key={t} type="button" className="tag-chip" onClick={() => add(t)}>+ {t}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 压缩图片：最长边限制在 1600px，JPEG 质量 0.85，控制上传体积
 function compressImage(dataUrl, maxSide = 1600, quality = 0.85) {
@@ -21,16 +65,23 @@ function compressImage(dataUrl, maxSide = 1600, quality = 0.85) {
 }
 
 export default function ProblemEntry() {
-  const { addProblem, user } = useApp();
+  const { addProblem, user, tagVocab } = useApp();
   const fileInputRef = useRef(null);
 
   const [name, setName] = useState('');
+  const [examType, setExamType] = useState('');
+  const [examYear, setExamYear] = useState('');
+  const [examRegion, setExamRegion] = useState('');
+  const [difficulty, setDifficulty] = useState(null);
+  const [selectedTags, setSelectedTags] = useState([]);
   const [imageDataUrl, setImageDataUrl] = useState(null);
   const [textInput, setTextInput] = useState('');
   const [rawText, setRawText] = useState('');
   const [completedText, setCompletedText] = useState('');
   const [steps, setSteps] = useState([]);
   const [commandsText, setCommandsText] = useState('');
+  const [mode, setMode] = useState('once');
+  const [constructInfo, setConstructInfo] = useState({ value: '', note: '' });
   const [analyzing, setAnalyzing] = useState(false);
   const [constructing, setConstructing] = useState(false);
   const [status, setStatus] = useState('');
@@ -90,6 +141,30 @@ export default function ProblemEntry() {
 
   const problemText = (completedText || rawText || textInput).trim();
 
+  const runOnce = async () => {
+    if (!imageDataUrl && !textInput.trim()) return;
+    setAnalyzing(true);
+    setStatus('正在识别并生成作图指令…');
+    try {
+      const result = await analyzeOnce(imageDataUrl, textInput.trim());
+      setRawText(result.rawText || '');
+      setCompletedText(result.completedText || result.rawText || '');
+      setSteps([]);
+      setCommandsText((result.commands || []).join('\n'));
+      setConstructInfo({ value: result.constructibility || '', note: result.constructNote || '' });
+      const cons = CONSTRUCT_LABELS[result.constructibility] || '';
+      setStatus(
+        (result.warnings?.length
+          ? `生成完成，${result.warnings.length} 条指令未过校验。`
+          : '生成完成。') + (cons ? ` 可构造性：${cons}。` : '')
+      );
+    } catch (e) {
+      setStatus('生成失败：' + (e.message || '未知错误'));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const runConstruction = async () => {
     if (!problemText) return;
     setConstructing(true);
@@ -98,6 +173,7 @@ export default function ProblemEntry() {
       const result = await analyzeConstruction(problemText);
       setSteps(result.steps || []);
       setCommandsText((result.commands || []).join('\n'));
+      setConstructInfo({ value: result.constructibility || '', note: result.constructNote || '' });
       setStatus(
         result.warnings?.length
           ? `作图分析完成，${result.warnings.length} 条指令被过滤。`
@@ -117,17 +193,23 @@ export default function ProblemEntry() {
       imageDataUrl,
       ocrText: problemText,
       commands: commandsText,
+      examType: examType || null,
+      examYear: examYear ? Number(examYear) : null,
+      examRegion: examRegion.trim() || null,
+      difficulty,
+      tags: selectedTags,
     });
     window.location.hash = '#/app';
   };
 
-  const canAnalyze = Boolean(imageDataUrl || textInput.trim()) && !analyzing && !constructing;
+  const busy = analyzing || constructing;
+  const canAnalyze = Boolean(imageDataUrl || textInput.trim()) && !busy;
   const canConstruct = Boolean(problemText) && !analyzing && !constructing;
 
   return (
     <div className="entry-shell" onPaste={onPaste}>
       <div className="entry-header">
-        <a className="entry-back text-muted" href="#/">&larr; 返回首页</a>
+        <a className="entry-back text-muted" href="#/app">&larr; 返回列表</a>
         <span className="entry-title text-ink">新建题目</span>
         <input
           className="entry-name"
@@ -135,6 +217,24 @@ export default function ProblemEntry() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        <div className="mode-switch">
+          <button
+            type="button"
+            className={mode === 'once' ? 'active' : ''}
+            onClick={() => setMode('once')}
+            title="一次调用完成识别、题目补全和作图指令生成（更快）"
+          >
+            合并一步
+          </button>
+          <button
+            type="button"
+            className={mode === 'twice' ? 'active' : ''}
+            onClick={() => setMode('twice')}
+            title="先识别题目，确认后再单独生成作图指令"
+          >
+            识别+作图两步
+          </button>
+        </div>
         {!user && <span className="text-muted entry-hint">未登录，识别功能需要登录后使用</span>}
       </div>
 
@@ -183,9 +283,16 @@ export default function ProblemEntry() {
             onChange={(e) => setTextInput(e.target.value)}
           />
 
-          <button className="button primary" onClick={runAnalyze} disabled={!canAnalyze}>
-            {analyzing ? '识别分析中…' : '识别分析'}
-          </button>
+          {mode === 'twice' && (
+            <button className="button primary" onClick={runAnalyze} disabled={!canAnalyze}>
+              {analyzing ? '识别分析中…' : '识别分析'}
+            </button>
+          )}
+          {mode === 'once' && (
+            <button className="button primary" onClick={runOnce} disabled={!canAnalyze}>
+              {analyzing ? '识别并生成中…' : '识别并生成指令'}
+            </button>
+          )}
 
           <label className="entry-label">原始识别文字</label>
           <textarea
@@ -203,10 +310,63 @@ export default function ProblemEntry() {
             placeholder="补全点所属线段等信息后的完整题目"
           />
 
-          <button className="button primary" onClick={runConstruction} disabled={!canConstruct}>
-            {constructing ? '作图分析中…' : '作图分析'}
-          </button>
+          <label className="entry-label">题目属性</label>
+          <div className="attr-row">
+            <select
+              className="attr-select"
+              value={examType}
+              onChange={(e) => setExamType(e.target.value)}
+              title="来源类型"
+            >
+              <option value="">来源类型</option>
+              {EXAM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input
+              className="attr-input attr-year"
+              type="number"
+              min="1990"
+              max="2100"
+              placeholder="年份"
+              value={examYear}
+              onChange={(e) => setExamYear(e.target.value)}
+            />
+            <input
+              className="attr-input"
+              type="text"
+              placeholder="地区，如福州"
+              value={examRegion}
+              onChange={(e) => setExamRegion(e.target.value)}
+            />
+          </div>
+          <div className="attr-row attr-difficulty">
+            <span className="attr-label">难度</span>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={'diff-btn' + (difficulty === n ? ' active' : '')}
+                title={DIFFICULTY_LABELS[n]}
+                onClick={() => setDifficulty(difficulty === n ? null : n)}
+              >
+                {n}
+              </button>
+            ))}
+            {difficulty != null && <span className="attr-label text-muted">{DIFFICULTY_LABELS[difficulty]}</span>}
+          </div>
+          <TagPicker vocab={tagVocab} selected={selectedTags} onChange={setSelectedTags} />
 
+          {mode === 'twice' && (
+            <button className="button primary" onClick={runConstruction} disabled={!canConstruct}>
+              {constructing ? '作图分析中…' : '作图分析'}
+            </button>
+          )}
+
+          {constructInfo.value && (
+            <p className="entry-status">
+              可构造性：{CONSTRUCT_LABELS[constructInfo.value] || constructInfo.value}
+              {constructInfo.note ? `（${constructInfo.note}）` : ''}
+            </p>
+          )}
           {status && <p className="entry-status text-muted">{status}</p>}
         </div>
 
@@ -215,7 +375,7 @@ export default function ProblemEntry() {
           <div className="entry-steps">
             <label className="entry-label">作图步骤分析</label>
             {steps.length === 0 ? (
-              <p className="text-muted entry-placeholder">作图分析后在此显示构建次序</p>
+              <p className="text-muted entry-placeholder">{mode === 'once' ? '合并一步模式不生成步骤明细' : '作图分析后在此显示构建次序'}</p>
             ) : (
               <table className="entry-table">
                 <thead>

@@ -76,6 +76,12 @@ export function analyzeConstruction(text, signal) {
   return post('/api/construction-analysis', { text }, signal);
 }
 
+// 合并一步：识别 + 完善题目 + 可构造性判定 + 作图指令，单次调用完成
+// 返回 { rawText, completedText, constructibility, constructNote, commands, warnings? }
+export function analyzeOnce(imageDataUrl, text, signal) {
+  return post('/api/analyze-once', { image: imageDataUrl || undefined, text: text || undefined }, signal);
+}
+
 export function refineCommands(
   text,
   currentCommands,
@@ -150,6 +156,14 @@ export function getAdminLogs() {
   });
 }
 
+export function getAdminAiCalls({ days = 30, limit = 200 } = {}) {
+  return fetch(`${API_BASE}/api/admin/ai-calls?days=${days}&limit=${limit}`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
 export async function loadState() {
   const res = await fetch(`${API_BASE}/api/state`, { credentials: 'include' });
   const text = await res.text();
@@ -167,4 +181,126 @@ export async function loadState() {
 
 export function saveState(state) {
   return post('/api/state', state);
+}
+
+// 每题增删改（增量同步）
+export function putProblem(id, problem) {
+  return fetch(`${API_BASE}/api/problems/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(problem),
+  }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function deleteProblemRemote(id) {
+  return fetch(`${API_BASE}/api/problems/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function saveActiveProblemId(activeProblemId) {
+  return post('/api/state/active', { activeProblemId });
+}
+
+// 编辑锁：409 时抛出带 lockedBy 信息的错误，由调用方决定是否强制接管
+async function lockFetch(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.lockedBy ? `该题正在被 ${data.lockedBy} 编辑` : (data.error || `请求失败 ${res.status}`));
+    err.lockedBy = data.lockedBy;
+    err.since = data.since;
+    throw err;
+  }
+  return data;
+}
+
+export function acquireProblemLock(id, instanceId, force = false) {
+  return lockFetch(`/api/problems/${id}/lock`, { instanceId, force });
+}
+
+export function releaseProblemLock(id, instanceId) {
+  return lockFetch(`/api/problems/${id}/unlock`, { instanceId });
+}
+
+export function getLocks() {
+  return fetch(`${API_BASE}/api/locks`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+// ---------- 题目图形版本快照 ----------
+export function listProblemVersions(problemId) {
+  return fetch(`${API_BASE}/api/problems/${encodeURIComponent(problemId)}/versions`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function saveProblemVersion(problemId, ggbState, force = false) {
+  return post(`/api/problems/${encodeURIComponent(problemId)}/versions`, { ggbState, force });
+}
+
+export function getProblemVersion(problemId, versionId) {
+  return fetch(
+    `${API_BASE}/api/problems/${encodeURIComponent(problemId)}/versions/${encodeURIComponent(versionId)}`,
+    { credentials: 'include' }
+  ).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function deleteProblemVersion(problemId, versionId) {
+  return fetch(
+    `${API_BASE}/api/problems/${encodeURIComponent(problemId)}/versions/${encodeURIComponent(versionId)}`,
+    { method: 'DELETE', credentials: 'include' }
+  ).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+// ---------- 题目属性 / 知识点词表 ----------
+export async function queryProblems(filters = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v != null && v !== '') qs.set(k, v);
+  }
+  const res = await fetch(`${API_BASE}/api/problems/query?${qs.toString()}`, { credentials: 'include' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `请求失败 ${res.status}`);
+  return data;
+}
+
+export function getKnowledgeTags() {
+  return fetch(`${API_BASE}/api/knowledge-tags`, { credentials: 'include' }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `请求失败 ${r.status}`);
+    return data;
+  });
+}
+
+export function createKnowledgeTag(name, category) {
+  return post('/api/knowledge-tags', { name, category });
 }

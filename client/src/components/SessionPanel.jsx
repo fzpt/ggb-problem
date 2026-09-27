@@ -12,9 +12,11 @@ export default function SessionPanel() {
     setStatus,
     drawnProblemId,
     setDrawnProblemId,
+    editProblemId,
   } = useApp();
 
   const [refining, setRefining] = useState(false);
+  const [detailEntry, setDetailEntry] = useState(null);
   const abortRefineRef = useRef(null);
 
   useEffect(() => {
@@ -29,8 +31,9 @@ export default function SessionPanel() {
     );
   }
 
-  const { id, name, ocrText, commands, refineHistory, refineInput } = activeProblem;
+  const { id, ocrText, commands, refineHistory, refineInput } = activeProblem;
   const llmProvider = activeProblem.llmProvider || 'kimi';
+  const editable = id === editProblemId;
 
   const setRefineInput = (value) => updateProblem(id, { refineInput: value });
   const setRefineHistory = (next) => {
@@ -40,6 +43,10 @@ export default function SessionPanel() {
   };
 
   const sendRefine = async () => {
+    if (!editable) {
+      setLog('当前为只读状态，点击题目旁的「编辑」按钮后才能调整。');
+      return;
+    }
     const instruction = refineInput.trim();
     const text = ocrText.trim() || '（无原始题目文字）';
     if (!instruction) {
@@ -81,11 +88,10 @@ export default function SessionPanel() {
       const operations = res.operations || [];
       const newCommands = (res.commands || []).join('\n');
       const hasOperations = Array.isArray(operations) && operations.length > 0;
-      const kimiEntry = { role: 'kimi', text: hasOperations ? `已应用 ${operations.length} 条增量操作。` : `已调整，生成 ${res.commands?.length || 0} 条指令。` };
-      setRefineHistory([...nextHistory, kimiEntry]);
-
+      let opResult = null;
       if (hasOperations) {
         const { applied, failed } = applyOperations(operations);
+        opResult = { operations, failed, applied };
         if (failed.length) {
           setLog(`增量操作完成：${applied} 条成功，${failed.length} 条失败。`);
         } else {
@@ -99,6 +105,12 @@ export default function SessionPanel() {
       } else {
         setLog('Kimi 没有返回可执行指令或操作。');
       }
+      const kimiEntry = {
+        role: 'kimi',
+        text: hasOperations ? `已应用 ${operations.length} 条增量操作。` : `已调整，生成 ${res.commands?.length || 0} 条指令。`,
+        detail: opResult || { commands: res.commands || [] },
+      };
+      setRefineHistory([...nextHistory, kimiEntry]);
     } catch (e) {
       console.error('[sendRefine] error', e);
       if (e.name === 'AbortError' || (e.message && e.message.includes('aborted'))) {
@@ -127,20 +139,8 @@ export default function SessionPanel() {
     }
   };
 
-  const lineCount = commands
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('//')).length;
-
   return (
     <div className="session-panel">
-      <div className="session-head">
-        <div className="session-title">
-          <span className="font-bold text-ink">{name || '未命名题目'}</span>
-          <span className="text-sm text-muted">{lineCount} 条指令 · {llmProvider}</span>
-        </div>
-      </div>
-
       <div className="session-body">
        <div className="problem-text-panel">
          <textarea
@@ -148,7 +148,12 @@ export default function SessionPanel() {
            className="editor-textarea"
            placeholder="尚未识别题目文字，也可直接输入或修改..."
            onChange={e => updateProblem(id, { ocrText: e.target.value })}
+           disabled={!editable}
+           readOnly={!editable}
          />
+         {!editable && (
+           <p className="readonly-hint">只读查看中，点击题目旁的「编辑」按钮后可修改。</p>
+         )}
        </div>
         <div className="chat-panel">
           <div className="chat">
@@ -161,19 +166,62 @@ export default function SessionPanel() {
                 className={`flex flex-col gap-1 ${entry.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
+                  onClick={entry.role === 'kimi' && entry.detail ? () => setDetailEntry(entry) : undefined}
+                  title={entry.role === 'kimi' && entry.detail ? '点击查看本次调整的指令与执行结果' : undefined}
                   className={`max-w-[90%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
                     entry.role === 'user'
                       ? 'bg-accent text-white rounded-br-sm'
-                      : 'bg-white/70 text-ink rounded-bl-sm'
+                      : `bg-white/70 text-ink rounded-bl-sm${entry.detail ? ' cursor-pointer hover:bg-white' : ''}`
                   }`}
                 >
                   {entry.text}
+                  {entry.role === 'kimi' && entry.detail && (
+                    <span className="block mt-1 text-xs opacity-60">点击查看详情</span>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      {detailEntry && (
+        <div className="detail-modal-mask" onClick={() => setDetailEntry(null)}>
+          <div className="detail-modal" onClick={e => e.stopPropagation()}>
+            <div className="detail-modal-head">
+              <span className="font-bold text-ink">调整详情</span>
+              <button onClick={() => setDetailEntry(null)}>关闭</button>
+            </div>
+            <div className="detail-modal-body">
+              {detailEntry.detail.operations && (
+                <>
+                  <p className="text-sm text-muted mb-2">
+                    增量操作：{detailEntry.detail.applied} 条成功，{detailEntry.detail.failed.length} 条失败
+                  </p>
+                  <ul className="detail-op-list">
+                    {detailEntry.detail.operations.map((op, i) => {
+                      const fail = detailEntry.detail.failed.find(f => f.op === op);
+                      return (
+                        <li key={i} className={fail ? 'op-failed' : 'op-ok'}>
+                          <span className="op-status">{fail ? '失败' : '成功'}</span>
+                          <code>{op.cmd || `${op.op} ${op.name || ''}`}</code>
+                          {fail && <span className="op-reason">{fail.reason}</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+              {detailEntry.detail.commands && detailEntry.detail.commands.length > 0 && (
+                <>
+                  <p className="text-sm text-muted mb-2 mt-3">生成的指令（{detailEntry.detail.commands.length} 条）</p>
+                  <pre className="commands-viewer-body detail-commands">{detailEntry.detail.commands.join('\n')}</pre>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="session-foot">
         <div className="refine-input-row">
@@ -183,7 +231,8 @@ export default function SessionPanel() {
             onKeyDown={onRefineKeyDown}
             className="refine-input"
             placeholder="输入调整说明，例如：把 A 点往左移一点、添加 AB 边上的高..."
-            disabled={refining}
+            disabled={!editable || refining}
+            readOnly={!editable}
           />
           {refining ? (
             <>
@@ -191,14 +240,11 @@ export default function SessionPanel() {
               <button onClick={cancelRefine}>终止</button>
             </>
           ) : (
-            <button className="primary" onClick={sendRefine} disabled={!refineInput.trim()}>
-              {llmProvider === 'kimi' ? '发送给 Kimi' : '发送调整说明'}
+            <button className="primary" onClick={sendRefine} disabled={!editable || !refineInput.trim()}>
+              调整
             </button>
           )}
         </div>
-        <p className="hint">
-          写法示例：<code>A=(0,0)</code>、<code>Segment(A,B)</code>、<code>Circle(A,2)</code>。空行和以 <code>//</code> 开头的注释会被忽略。
-        </p>
         <div className="log">{log}</div>
       </div>
     </div>

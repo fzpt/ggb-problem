@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAdminSettings, putAdminSettings, testAdminModel, getAdminTasks, cancelAdminTask, getAdminLogs } from '../services/api';
+import { getAdminSettings, putAdminSettings, testAdminModel, getAdminTasks, cancelAdminTask, getAdminLogs, getAdminAiCalls } from '../services/api';
 
 const STATUS_LABEL = {
   queued: '排队中',
@@ -21,6 +21,17 @@ function fmtDuration(t) {
   return s < 60 ? `${s} 秒` : `${Math.round(s / 60)} 分钟`;
 }
 
+function fmtDateTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function fmtNum(n) {
+  return n == null ? '-' : Number(n).toLocaleString('zh-CN');
+}
+
 export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -34,6 +45,9 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
   const [tasks, setTasks] = useState([]);
+  const [aiDays, setAiDays] = useState(30);
+  const [aiCalls, setAiCalls] = useState([]);
+  const [aiSummary, setAiSummary] = useState([]);
   const [logMaxMb, setLogMaxMb] = useState(10);
   const [logMaxFiles, setLogMaxFiles] = useState(100);
   const [logStatus, setLogStatus] = useState(null);
@@ -72,6 +86,15 @@ export default function Admin() {
     const timer = setInterval(load, 3000);
     return () => { stopped = true; clearInterval(timer); };
   }, [forbidden]);
+
+  // AI 调用计费（随筛选天数拉取，不轮询）
+  useEffect(() => {
+    if (forbidden) return;
+    getAdminAiCalls({ days: aiDays }).then((d) => {
+      setAiCalls(d.calls || []);
+      setAiSummary(d.summary || []);
+    }).catch(() => {});
+  }, [forbidden, aiDays]);
 
   const cancelTask = (userId) => {
     cancelAdminTask(userId).then(() => {
@@ -275,6 +298,81 @@ export default function Admin() {
             <p className="text-muted admin-note">
               最近错误：{tasks.find((t) => t.status === 'error')?.error}
             </p>
+          )}
+        </section>
+
+        <section className="admin-section">
+          <h2 className="admin-section-title">AI 调用计费</h2>
+          <div className="admin-row">
+            <select className="admin-select" value={aiDays} onChange={(e) => setAiDays(Number(e.target.value))}>
+              <option value={1}>最近 1 天</option>
+              <option value={7}>最近 7 天</option>
+              <option value={30}>最近 30 天</option>
+              <option value={90}>最近 90 天</option>
+              <option value={0}>全部</option>
+            </select>
+          </div>
+          {aiSummary.length > 0 && (
+            <table className="entry-table admin-task-table">
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th>调用次数</th>
+                  <th>成功</th>
+                  <th>输入 tokens</th>
+                  <th>输出 tokens</th>
+                  <th>合计 tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiSummary.map((s) => (
+                  <tr key={s.model || '（未知）'}>
+                    <td>{s.model || '（未知）'}</td>
+                    <td>{fmtNum(s.call_count)}</td>
+                    <td>{fmtNum(s.ok_count)}</td>
+                    <td>{fmtNum(s.prompt_tokens)}</td>
+                    <td>{fmtNum(s.completion_tokens)}</td>
+                    <td>{fmtNum(s.total_tokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {aiCalls.length === 0 ? (
+            <p className="text-muted admin-note">该时间范围内暂无调用记录。</p>
+          ) : (
+            <table className="entry-table admin-task-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>调用 ID</th>
+                  <th>服务商 ID</th>
+                  <th>模型</th>
+                  <th>任务</th>
+                  <th>输入</th>
+                  <th>输出</th>
+                  <th>合计</th>
+                  <th>耗时</th>
+                  <th>结果</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiCalls.map((c) => (
+                  <tr key={`${c.created_at}-${c.call_id || ''}-${c.provider_call_id || ''}`}>
+                    <td>{fmtDateTime(c.created_at)}</td>
+                    <td className="admin-mono">{c.call_id || '-'}</td>
+                    <td className="admin-mono">{c.provider_call_id || '-'}</td>
+                    <td>{c.model || '-'}</td>
+                    <td>{c.task_type || '-'}</td>
+                    <td>{fmtNum(c.prompt_tokens)}</td>
+                    <td>{fmtNum(c.completion_tokens)}</td>
+                    <td>{fmtNum(c.total_tokens)}</td>
+                    <td>{c.duration_ms != null ? `${(c.duration_ms / 1000).toFixed(1)}s` : '-'}</td>
+                    <td>{c.ok ? '成功' : '失败'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </section>
       </div>

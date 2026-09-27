@@ -7,6 +7,7 @@ import HomeEntry from './components/HomeEntry';
 import CommandConsole from './components/CommandConsole';
 import ProblemEntry from './components/ProblemEntry';
 import Admin from './components/Admin';
+import VersionManager from './components/VersionManager';
 import { useApp } from './store/AppContext';
 
 function useHashRoute() {
@@ -43,6 +44,9 @@ function App() {
   }
   if (hash === '#/console') {
     return <CommandConsole />;
+  }
+  if (hash === '#/versions') {
+    return <VersionManager />;
   }
   if (hash === '#/app') {
     return <Workspace />;
