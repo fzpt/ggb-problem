@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { runCommands } from '../lib/ggb';
-import { loadGgbScript } from '../lib/ggb-script';
+import { loadGgbScript, useLocalGgbCodebase } from '../lib/ggb-script';
 import { saveProblemVersion } from '../services/api';
 
 const formatTime = (ts) => {
@@ -111,9 +111,8 @@ const toastTimerRef = useRef(null);
   const prevEditableRef = useRef(false);
   // 只读保护：加载/切题期间禁止回滚（此刻 XML 变化来自题目切换本身）
   const loadingRef = useRef(false);
-  // 画布自动保存（最新数据）：轮询 XML，变化后静默 3 秒写入 ggbState
+  // 最新数据基准：手动「保存」/存档时读取画布 XML 写入 ggbState（已取消自动保存）
   const lastXmlRef = useRef('');
-  const autosaveTimerRef = useRef(null);
   const activeIdRef = useRef(null);
   const editableRef = useRef(false);
 
@@ -181,59 +180,34 @@ const toastTimerRef = useRef(null);
     }
   };
 
-  // 画布自动保存为"最新数据"：每 2.5s 轮询一次，变化后静默 3s 落库。
-  // 非编辑态（只读）：不落库，并把画布改动回滚到基准 XML，保证只读页不被污染。
-  useEffect(() => {
-    if (!ready) return undefined;
-    const poll = setInterval(() => {
-      const api = window.ggbApplet;
-      const id = activeIdRef.current;
-      if (!api || !id) return;
-      let xml;
-      try {
-        xml = api.getXML();
-      } catch {
-        return;
-      }
-      if (!xml || xml === lastXmlRef.current) return;
-      if (!editableRef.current) {
-        if (loadingRef.current || !lastXmlRef.current) return;
-        try {
-          api.setXML(lastXmlRef.current);
-        } catch {
-          // 画布正在重建时忽略，下一轮轮询再试
-        }
-        return;
-      }
-      // 首个变化即启动计时；计时器 pending 期间不再重置（轮询间隔 2.5s < 防抖 3s，
-      // 每 tick 重置会导致计时器永远不得触发）。触发时取最新 XML，期间的变化一并保存。
-      if (autosaveTimerRef.current) return;
-      // 目标题目在调度时锁定：切换题目后定时器触发也不会把新题目的画布存到旧题目上
-      const targetId = activeIdRef.current;
-      autosaveTimerRef.current = {
-        id: targetId,
-        t: setTimeout(() => {
-          autosaveTimerRef.current = null;
-          try {
-            const latest = window.ggbApplet.getXML();
-            lastXmlRef.current = latest;
-            updateProblem(targetId, { ggbState: latest }, { silent: true });
-          } catch {
-            // 画布正在重建时忽略，下一轮轮询再试
-          }
-        }, 3000),
-      };
-    }, 2500);
-    return () => {
-      clearInterval(poll);
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current.t);
-    };
-  }, [ready, updateProblem]);
+  // 保存当前画布为最新数据（手动落库，不生成版本）
+  const saveNow = () => {
+    if (!activeProblem || !editable) return;
+    const api = window.ggbApplet;
+    if (!api) {
+      setLog('GeoGebra 尚未加载完成，无法保存。');
+      return;
+    }
+    let xml;
+    try {
+      xml = api.getXML();
+    } catch (e) {
+      setLog('保存失败：' + e.message);
+      return;
+    }
+    updateProblem(activeProblem.id, { ggbState: xml });
+    lastXmlRef.current = xml;
+    showToast('已保存当前图形。');
+  };
 
-  // 进入/退出编辑态时固定/解锁画布对象；只读态下对象不可拖动、工具绘制会被回滚
+  // 只读模式：允许拖动对象与背景平移，禁止新增/删除/改属性。
+  // 手段：对象可拖动但不可选中（挡键盘删除与选中类属性操作）、
+  // 隐藏工具栏与代数输入（CSS 类 .readonly）、拦截右键菜单（下方 effect）、
+  // 新增对象立即删除（registerAddListener 兜底，见 init effect）
   useEffect(() => {
     if (!ready || !window.ggbApplet) return undefined;
     const api = window.ggbApplet;
+    const ro = !editable;
     let labels = [];
     try {
       labels = (typeof api.getAllObjectNames === 'function' && api.getAllObjectNames()) || [];
@@ -242,13 +216,25 @@ const toastTimerRef = useRef(null);
     }
     for (const label of labels) {
       try {
-        api.setFixed(label, !editable);
+        api.setFixed(label, false, !ro);
       } catch {
         // 对象可能正在重建，忽略
       }
     }
+    containerRef.current?.classList.toggle('readonly', ro);
     return undefined;
   }, [ready, editable, activeProblem?.id]);
+
+  // 只读态拦截右键菜单（Settings/删除入口都在右键菜单里）
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const onCtx = (e) => {
+      if (!editableRef.current) e.preventDefault();
+    };
+    el.addEventListener('contextmenu', onCtx);
+    return () => el.removeEventListener('contextmenu', onCtx);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,9 +259,18 @@ const toastTimerRef = useRef(null);
             setReady(true);
             setStatus({ text: 'GeoGebra 已就绪', color: '#333333' });
             setLog('GeoGebra 加载完成，可以执行指令。');
+            // 只读兜底：任何新增对象（指令/工具栏）立即删除
+            try {
+              window.ggbApplet.registerAddListener((name) => {
+                if (!editableRef.current && !loadingRef.current) {
+                  try { window.ggbApplet.deleteObject(name); } catch { /* 画布重建中忽略 */ }
+                }
+              });
+            } catch { /* 老版本 API 没有 registerAddListener 时忽略 */ }
           },
         };
         const applet = new window.GGBApplet(params, true);
+        useLocalGgbCodebase(applet);
         applet.inject(containerRef.current.id);
         containerRef.current.dataset.loaded = 'true';
       })
@@ -362,30 +357,6 @@ const toastTimerRef = useRef(null);
     const currentId = activeProblem?.id || null;
     const currentGgbState = activeProblem?.ggbState || '';
 
-    // 切题前把未落库的改动存回原题目。判定依据是画布 XML 与基准值的差异，
-    // 而不是防抖定时器是否 pending——轮询间隔 2.5s 内完成的改动此时还没被
-    // 轮询发现，只查 pending 会漏掉。此刻画布仍是旧题目内容，reset 之前保存。
-    const prevId = prevIdRef.current;
-    if (currentId !== prevId) {
-      const pending = autosaveTimerRef.current;
-      if (pending) {
-        clearTimeout(pending.t);
-        autosaveTimerRef.current = null;
-      }
-      // 只读态下的画布不应有改动；只有编辑态的题目才需要 flush
-      if (prevId && prevEditableRef.current) {
-        try {
-          const xml = window.ggbApplet.getXML();
-          if (xml && xml !== lastXmlRef.current) {
-            lastXmlRef.current = xml;
-            updateProblem(prevId, { ggbState: xml }, { silent: true });
-          }
-        } catch (e) {
-          console.error('flush ggb state on switch failed', e);
-        }
-      }
-    }
-
     window.ggbApplet.reset();
     window.ggbApplet.setAxesVisible(true, true);
     window.ggbApplet.setGridVisible(true);
@@ -437,7 +408,7 @@ const toastTimerRef = useRef(null);
           <span className="font-bold text-ink truncate">{name || '未命名题目'}</span>
           {activeProblem && (
             editable
-              ? <span className="edit-badge editing" title="你正在编辑此题，改动会自动保存">编辑中</span>
+              ? <span className="edit-badge editing" title="你正在编辑此题，改动需点「保存」落库">编辑中</span>
               : <span className="edit-badge readonly" title="只读查看：点击题目旁的「编辑」按钮后可修改">只读</span>
           )}
         </div>
@@ -447,6 +418,9 @@ const toastTimerRef = useRef(null);
           </button>
           <button onClick={() => { window.location.hash = '#/versions'; }} title="管理该题目保存过的图形版本">
             版本管理
+          </button>
+          <button onClick={saveNow} disabled={!editable} title={editable ? '把当前画布内容保存为最新数据' : '只读状态，进入编辑后可保存'}>
+            保存
           </button>
           <button onClick={saveCurrentVersion} disabled={!editable} title={editable ? '把当前画布内容保存为一个版本' : '只读状态，进入编辑后可存档'}>
             存档
@@ -498,7 +472,7 @@ const toastTimerRef = useRef(null);
           <div className="geo-loading">
             <div className="text-center text-muted">
               <p>正在加载 GeoGebra Geometry</p>
-              <p className="text-sm opacity-70">首次打开需要从 geogebra.org 加载嵌入脚本</p>
+              <p className="text-sm opacity-70">首次打开需要加载本地 GeoGebra 运行库</p>
             </div>
           </div>
         )}

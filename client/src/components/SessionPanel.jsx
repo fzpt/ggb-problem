@@ -34,6 +34,7 @@ export default function SessionPanel() {
   const { id, ocrText, commands, refineHistory, refineInput } = activeProblem;
   const llmProvider = activeProblem.llmProvider || 'kimi';
   const editable = id === editProblemId;
+  const isJxg = activeProblem.engine === 'jxg';
 
   const setRefineInput = (value) => updateProblem(id, { refineInput: value });
   const setRefineHistory = (next) => {
@@ -53,10 +54,10 @@ export default function SessionPanel() {
       setLog('请输入调整说明。');
       return;
     }
-    const currentCommands = commands;
+    const currentCommands = isJxg ? JSON.stringify(activeProblem.jxgSteps || []) : commands;
     const needsReset = id !== drawnProblemId;
     let baseHistory = [];
-    if (needsReset) {
+    if (needsReset && !isJxg) {
       setDrawnProblemId(id);
       if (window.ggbApplet) {
         window.ggbApplet.reset();
@@ -83,8 +84,25 @@ export default function SessionPanel() {
     abortRefineRef.current = controller;
     setStatus({ text: '正在调整...', color: '#555555' });
     try {
-      const currentObjects = window.ggbApplet ? getCurrentObjects() : [];
-      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, { currentObjects, mode: 'incremental' }, controller.signal);
+      const currentObjects = !isJxg && window.ggbApplet ? getCurrentObjects() : [];
+      const res = await api.refineCommands(text, currentCommands, baseHistory, instruction, llmProvider, { currentObjects, mode: 'incremental', format: isJxg ? 'jxg' : undefined }, controller.signal);
+      if (isJxg) {
+        // JSXGraph 引擎：返回完整修订后的 JSON 步骤数组，交给 JxgViewer 渲染并保存
+        const newSteps = Array.isArray(res.jxgSteps) ? res.jxgSteps : [];
+        if (newSteps.length) {
+          updateProblem(id, { jxgSteps: newSteps });
+          setLog('调整完成，已更新图形。');
+          setStatus({ text: '调整完成', color: '#333333' });
+        } else {
+          setLog('模型没有返回可渲染的步骤。');
+        }
+        const kimiEntry = {
+          role: 'kimi',
+          text: newSteps.length ? `已调整，生成 ${newSteps.length} 步构造。` : '未返回构造步骤。',
+          detail: { jxgSteps: newSteps, warnings: res.warnings || [] },
+        };
+        setRefineHistory([...nextHistory, kimiEntry]);
+      } else {
       const operations = res.operations || [];
       const newCommands = (res.commands || []).join('\n');
       const hasOperations = Array.isArray(operations) && operations.length > 0;
@@ -111,6 +129,7 @@ export default function SessionPanel() {
         detail: opResult || { commands: res.commands || [] },
       };
       setRefineHistory([...nextHistory, kimiEntry]);
+      }
     } catch (e) {
       console.error('[sendRefine] error', e);
       if (e.name === 'AbortError' || (e.message && e.message.includes('aborted'))) {
@@ -211,6 +230,19 @@ export default function SessionPanel() {
                     })}
                   </ul>
                 </>
+              )}
+              {detailEntry.detail.jxgSteps && (
+                <>
+                  <p className="text-sm text-muted mb-2 mt-3">
+                    生成的构造步骤（{detailEntry.detail.jxgSteps.length} 步）
+                  </p>
+                  <pre className="commands-viewer-body detail-commands">
+                    {JSON.stringify(detailEntry.detail.jxgSteps, null, 2)}
+                  </pre>
+                </>
+              )}
+              {detailEntry.detail.warnings && detailEntry.detail.warnings.length > 0 && (
+                <p className="text-sm text-muted mt-2">校验提示：{detailEntry.detail.warnings.join('；')}</p>
               )}
               {detailEntry.detail.commands && detailEntry.detail.commands.length > 0 && (
                 <>

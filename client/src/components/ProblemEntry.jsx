@@ -80,6 +80,8 @@ export default function ProblemEntry() {
   const [completedText, setCompletedText] = useState('');
   const [steps, setSteps] = useState([]);
   const [commandsText, setCommandsText] = useState('');
+  const [jxgSteps, setJxgSteps] = useState([]);
+  const [engine, setEngine] = useState('jxg');
   const [mode, setMode] = useState('once');
   const [constructInfo, setConstructInfo] = useState({ value: '', note: '' });
   const [analyzing, setAnalyzing] = useState(false);
@@ -140,17 +142,24 @@ export default function ProblemEntry() {
   };
 
   const problemText = (completedText || rawText || textInput).trim();
+  const isJxg = engine === 'jxg';
 
   const runOnce = async () => {
     if (!imageDataUrl && !textInput.trim()) return;
     setAnalyzing(true);
     setStatus('正在识别并生成作图指令…');
     try {
-      const result = await analyzeOnce(imageDataUrl, textInput.trim());
+      const result = await analyzeOnce(imageDataUrl, textInput.trim(), undefined, isJxg ? 'jxg' : undefined);
       setRawText(result.rawText || '');
       setCompletedText(result.completedText || result.rawText || '');
       setSteps([]);
-      setCommandsText((result.commands || []).join('\n'));
+      if (isJxg) {
+        setJxgSteps(result.jxgSteps || []);
+        setCommandsText('');
+      } else {
+        setCommandsText((result.commands || []).join('\n'));
+        setJxgSteps([]);
+      }
       setConstructInfo({ value: result.constructibility || '', note: result.constructNote || '' });
       const cons = CONSTRUCT_LABELS[result.constructibility] || '';
       setStatus(
@@ -170,9 +179,15 @@ export default function ProblemEntry() {
     setConstructing(true);
     setStatus('正在作图分析…');
     try {
-      const result = await analyzeConstruction(problemText);
+      const result = await analyzeConstruction(problemText, undefined, isJxg ? 'jxg' : undefined);
       setSteps(result.steps || []);
-      setCommandsText((result.commands || []).join('\n'));
+      if (isJxg) {
+        setJxgSteps(result.jxgSteps || []);
+        setCommandsText('');
+      } else {
+        setCommandsText((result.commands || []).join('\n'));
+        setJxgSteps([]);
+      }
       setConstructInfo({ value: result.constructibility || '', note: result.constructNote || '' });
       setStatus(
         result.warnings?.length
@@ -187,12 +202,14 @@ export default function ProblemEntry() {
   };
 
   const confirmDraw = () => {
-    if (!commandsText.trim()) return;
+    if (isJxg ? jxgSteps.length === 0 : !commandsText.trim()) return;
     addProblem({
       name: name.trim() || '未命名题目',
       imageDataUrl,
       ocrText: problemText,
-      commands: commandsText,
+      commands: isJxg ? '' : commandsText,
+      engine,
+      jxgSteps: isJxg ? jxgSteps : [],
       examType: examType || null,
       examYear: examYear ? Number(examYear) : null,
       examRegion: examRegion.trim() || null,
@@ -205,6 +222,7 @@ export default function ProblemEntry() {
   const busy = analyzing || constructing;
   const canAnalyze = Boolean(imageDataUrl || textInput.trim()) && !busy;
   const canConstruct = Boolean(problemText) && !analyzing && !constructing;
+  const canDraw = isJxg ? jxgSteps.length > 0 : Boolean(commandsText.trim());
 
   return (
     <div className="entry-shell" onPaste={onPaste}>
@@ -218,6 +236,23 @@ export default function ProblemEntry() {
           onChange={(e) => setName(e.target.value)}
         />
         <div className="mode-switch">
+          <button
+            type="button"
+            className={engine === 'jxg' ? 'active' : ''}
+            onClick={() => setEngine('jxg')}
+            title="使用 JSXGraph 引擎生成 JSON 构造步骤（默认）"
+          >
+            JSXGraph
+          </button>
+          <button
+            type="button"
+            className={engine === 'ggb' ? 'active' : ''}
+            onClick={() => setEngine('ggb')}
+            title="使用 GeoGebra Geometry 指令"
+          >
+            GeoGebra
+          </button>
+          <span className="tool-sep"></span>
           <button
             type="button"
             className={mode === 'once' ? 'active' : ''}
@@ -402,18 +437,31 @@ export default function ProblemEntry() {
             )}
           </div>
           <div className="entry-commands">
-            <label className="entry-label">GeoGebra 作图指令</label>
-            <textarea
-              className="entry-box entry-commands-box"
-              value={commandsText}
-              onChange={(e) => setCommandsText(e.target.value)}
-              placeholder="作图分析后生成，可手动修改"
-              spellCheck={false}
-            />
+            <label className="entry-label">{isJxg ? '构造步骤 JSON' : 'GeoGebra 作图指令'}</label>
+            {isJxg ? (
+              <textarea
+                className="entry-box entry-commands-box"
+                value={JSON.stringify(jxgSteps, null, 2)}
+                onChange={(e) => {
+                  try { setJxgSteps(JSON.parse(e.target.value || '[]')); }
+                  catch { /* 编辑中的非法 JSON 暂不生效 */ }
+                }}
+                placeholder="作图分析后生成 JSON 构造步骤，可手动修改"
+                spellCheck={false}
+              />
+            ) : (
+              <textarea
+                className="entry-box entry-commands-box"
+                value={commandsText}
+                onChange={(e) => setCommandsText(e.target.value)}
+                placeholder="作图分析后生成，可手动修改"
+                spellCheck={false}
+              />
+            )}
             <button
               className="button primary entry-draw"
               onClick={confirmDraw}
-              disabled={!commandsText.trim()}
+              disabled={!canDraw}
             >
               作图
             </button>

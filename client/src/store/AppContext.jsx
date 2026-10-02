@@ -17,6 +17,8 @@ function createProblem({ id = crypto.randomUUID(), name = '未命名题目', ...
     refineInput: '',
     activeTab: 'image',
     ggbState: '',
+    engine: 'ggb',          // 'ggb' | 'jxg'：GeoGebra 命令文本 或 JSXGraph JSON 步骤
+    jxgSteps: [],           // jxg 引擎的构造步骤数组（ggb 题为 []）
     ocrProvider: 'baidu',
     llmProvider: 'kimi',
     examType: null,
@@ -97,10 +99,12 @@ export function AppProvider({ children }) {
     await releaseEditLock();
   }, [releaseEditLock]);
 
-  // 心跳续期；若 409 说明被其他实例强制接管，本页自动退出编辑态
+  // 心跳续期；若 409 说明被其他实例强制接管，本页自动退出编辑态。
+  // 窗口不关，锁就一直持有：10s 定时心跳之外，标签页切回可见/网络恢复时立即补一次
+  //（后台标签页浏览器会把定时器节流到 1 分钟一次，仅靠 setInterval 会误判失联）
   useEffect(() => {
     if (!user || !editProblemId) return undefined;
-    const timer = setInterval(async () => {
+    const beat = async () => {
       try {
         await acquireProblemLock(editProblemId, instanceIdRef.current, false);
       } catch (e) {
@@ -110,8 +114,18 @@ export function AppProvider({ children }) {
           setStatus({ text: '编辑权已被接管', color: '#555555' });
         }
       }
-    }, 10000);
-    return () => clearInterval(timer);
+    };
+    const timer = setInterval(beat, 10000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') beat();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', beat);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', beat);
+    };
   }, [user, editProblemId, setLog, setStatus]);
 
   // 定期拉取锁列表，供题目列表展示"正在被谁编辑"
@@ -296,8 +310,7 @@ export function AppProvider({ children }) {
     return problem.id;
   }, [markDirty, startEdit]);
 
-  // opts.silent：纯画布移动（自动保存/切题 flush）只改 ggbState，
-  // 保留原修改时间；实质编辑默认刷新 updated_at
+  // opts.silent：只改内容、保留原修改时间（如版本回写）；实质编辑默认刷新 updated_at
   const updateProblem = useCallback((id, updates, opts = {}) => {
     const merged = opts.silent || 'updated_at' in updates
       ? updates

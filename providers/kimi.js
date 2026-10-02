@@ -5,14 +5,17 @@ const path = require('node:path');
 const config = require('../config');
 const db = require('../db');
 const ggb = require('../lib/ggb-commands');
+const jxg = require('../lib/jxg-steps');
 const settings = require('../lib/settings');
 const zhipu = require('./zhipu');
 const llmLogger = require('../lib/llm-logger');
 const GG_REFERENCE = ggb.referenceText();
+const JXG_REFERENCE = jxg.referenceText();
 
 const DEFAULT_MODEL = 'kimi-k2.7-code';
 
-// 统一出口：按模型 id 分发到 Kimi 或智谱，模型来自管理后台设置。
+// 统一出口：按模型 id 分发——带 '/' 走硅基流动，glm 开头走智谱，其余走 Kimi 官方；
+// 模型来自管理后台设置。
 // chatCompletionDetailed 额外返回 usage 等计费信息（对比测试/核算用）。
 function chatCompletionDetailed(messages, options = {}) {
   const model = options.model || settings.resolveModelId(options.taskType || 'text');
@@ -24,7 +27,19 @@ function chatCompletionDetailed(messages, options = {}) {
     userId: options.userId,
     messages,
   };
-  if (model.startsWith('glm')) {
+  let result;
+  if (model.includes('/')) {
+    // 硅基流动的模型 id 一律带 '/'（如 Qwen/Qwen3.8-27B、moonshotai/Kimi-K2.7-Code）
+    const sfKey = process.env.SILICONFLOW_API_KEY;
+    if (!sfKey) {
+      return Promise.reject(new Error('SILICONFLOW_API_KEY environment variable is not set.'));
+    }
+    result = callKimi(sfKey, model, messages, options.userId, {
+      hostname: 'api.siliconflow.cn',
+      path: '/v1/chat/completions',
+      label: 'SiliconFlow',
+    });
+  } else if (model.startsWith('glm')) {
     const hooks = {
       setCurrent: (req) => { getUserQueueState(options.userId).currentRequest = req; },
       clearCurrent: () => {
@@ -32,24 +47,15 @@ function chatCompletionDetailed(messages, options = {}) {
         if (st.currentRequest) st.currentRequest = null;
       },
     };
-    return zhipu
-      .chat(settings.getSettings().keysZhipu, model, messages, hooks)
-      .then(({ content, providerCallId, usage }) => {
-        db.insertAiCall({ callId: logBase.callId, providerCallId, userId: logBase.userId, model, taskType: logBase.taskType, usage, ok: true, durationMs: Date.now() - startedAt });
-        llmLogger.log({ ...logBase, ok: true, response: content, providerCallId, durationMs: Date.now() - startedAt });
-        return { content, providerCallId, usage, callId: logBase.callId };
-      })
-      .catch((err) => {
-      db.insertAiCall({ callId: logBase.callId, providerCallId: err.providerCallId || null, userId: logBase.userId, model, taskType: logBase.taskType, usage: null, ok: false, error: err.message, durationMs: Date.now() - startedAt });
-        llmLogger.log({ ...logBase, ok: false, error: err.message, providerCallId: err.providerCallId, durationMs: Date.now() - startedAt });
-        throw err;
-      });
+    result = zhipu.chat(settings.getSettings().keysZhipu, model, messages, hooks);
+  } else {
+    const apiKey = config.llm.kimi.apiKey;
+    if (!apiKey) {
+      return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
+    }
+    result = callKimi(apiKey, model, messages, options.userId);
   }
-  const apiKey = config.llm.kimi.apiKey;
-  if (!apiKey) {
-    return Promise.reject(new Error('KIMI_API_KEY environment variable is not set.'));
-  }
-  return callKimi(apiKey, model, messages, options.userId).then(
+  return result.then(
     ({ content, providerCallId, usage }) => {
       db.insertAiCall({ callId: logBase.callId, providerCallId, userId: logBase.userId, model, taskType: logBase.taskType, usage, ok: true, durationMs: Date.now() - startedAt });
       llmLogger.log({ ...logBase, ok: true, response: content, providerCallId, durationMs: Date.now() - startedAt });
@@ -265,6 +271,70 @@ Verified GeoGebra Geometry command pitfalls (must obey):
 - Foot of perpendicular from a point to a segment: intersect with an auxiliary LINE (lineAB = Line(A,B); H = Intersect(PerpendicularLine(P, lineAB), lineAB)), NOT with the segment (intersecting a segment fails when the foot lies outside the segment); hide the auxiliary line as above.
 - Segment intersecting another line or curve: ALWAYS intersect an auxiliary line through the segment's endpoints (lineAB = Line(A, B); P = Intersect(lineAB, other)), NEVER the segment itself (intersecting a segment fails when the crossing point lies on the segment's extension). After obtaining the intersection P, connect P to BOTH endpoints of the segment: Segment(A, P) and Segment(P, B), so the intersection is visibly joined on the segment; hide the auxiliary line as above.`;
 
+// ---------- JSXGraph 版提示词（format=jxg）：输出 JSON 构造步骤而非 GeoGebra 命令 ----------
+
+const JXG_COMMON_RULES = `
+JSON construction steps schema (each step is one JSON object, top level is an array):
+${'${JXG_REFERENCE}'}
+
+Hard rules for the "jxgSteps" array:
+1. ONLY the initial free points (with no geometric constraint, e.g. the triangle's vertices) may use numeric "coords". Usually just 2-4 free points.
+2. Every OTHER point must be positioned through a geometric CONSTRAINT, never precomputed numeric coords:
+   - ratio/distance positioning (e.g. AD = BC/AB along a segment) -> { "type": "dilate", "of": ..., "center": ..., "ratio": ... }
+   - rotation by a KNOWN numeric angle -> { "type": "rotate", "of": ..., "center": ..., "angle": ... }
+   - anything else -> { "type": "exprpoint", "x": "...", "y": "..." } with expressions built ONLY from x(A), y(A), Distance(A,B), numbers, + - * / and parentheses
+3. Every referenced id MUST be defined by an EARLIER step. Steps are replayed in order.
+4. ids must be unique, letters/digits/underscore, start with a letter (plain names like A, B, C, D, F, M, O, H are best).
+5. Auxiliary/intermediate products (helper circles, rays, temporary points NOT in the final figure) must carry "visible": false on their step.
+6. NEVER prove, verify, or solve the problem. Construction only.
+7. Positional constraints (e.g. "P and Q lie on opposite sides of line BC", "同侧", "异侧", "在...上方") must NEVER be expressed by guessing an "index" (an index has no stable geometric meaning). Instead add a "side" object to the intersection step: { "type": "intersection", "id": "Q", "e1": "circ1", "e2": "line1", "side": { "line": "segBC", "point": "P", "rel": "opposite" } } (use "same" for the same side). The "side.line" must be a line/segment/ray defined by an EARLIER step.`;
+
+const SYSTEM_PROMPT_JXG_CONSTRUCTION = `You are a geometry construction planner, NEVER prove, verify, or solve the problem. Given a (completed) Chinese geometry problem, output a single valid JSON object with exactly four fields. Output ONLY valid JSON. No markdown fences. No explanations:
+{
+  "steps": [
+    {"order": 1, "object": "A, B, C", "type": "自由点", "dependencies": "无", "constraint": "仅形状要求: AB > BC, C 在直线 AB 上方"}
+  ],
+  "jxgSteps": [ { "type": "point", "id": "A", "coords": [0, 0] } ],
+  "constructibility": "direct | conclusion | impossible",
+  "constructNote": "constructibility 为 conclusion 时的说明，其他情况为空字符串"
+}
+
+The "steps" array is the construction order analysis (same schema as above: order/object/type/dependencies/constraint, one row per stage).
+
+Before planning, judge how the figure can be constructed, "constructibility":
+- direct: the figure can be built directly from the problem conditions
+- conclusion: direct construction is too difficult; some conclusion of the problem must be used as a given condition to position points
+- impossible: cannot be drawn with the available step types
+When constructibility is conclusion, constructNote MUST explain which conclusion was used as a condition.
+${JXG_COMMON_RULES}`;
+
+const SYSTEM_PROMPT_JXG_ONESHOT = `读取图片或文字中的几何题，输出一个 JSON 对象：
+{"rawText":"识别出的题目原文","completedText":"补全点所属线段后的完整题目","constructibility":"direct | conclusion | impossible","constructNote":"constructibility 为 conclusion 时的说明，其他情况为空字符串","jxgSteps":[构造步骤数组]}。
+只输出 JSON，不要输出其他内容。
+
+只做作图，不要证明、验证或解答题目。
+
+constructibility 判定（作图前必须先判断）：
+- direct：可以直接按题意作图
+- conclusion：直接作图困难，需要把题目结论（或部分结论）当作已知条件来定位点（必须在 constructNote 中说明把哪个结论当作了条件）
+- impossible：无法用可用步骤类型作图
+
+题目文字处理：completedText 中如果出现"如图""如图所示"等引用图片的字样，必须去掉。
+${JXG_COMMON_RULES}`;
+
+const SYSTEM_PROMPT_JXG_REFINE = `You are a geometry construction refiner. Given an original geometry problem, the current JSON construction steps of the diagram, and a user's adjustment instruction (Chinese), output the COMPLETE revised JSON construction steps array. NEVER prove, verify, or solve the problem.
+
+Output format: {"jxgSteps": [ ...full revised steps array... ]}
+
+Rules:
+1. Output ONLY valid JSON. No markdown code fences. No explanations.
+2. Return the FULL revised steps array (the board is rebuilt from it), not just the changes.
+3. Apply the user's adjustment instruction precisely; keep the original construction intent otherwise.
+4. If the user asks to move a point, update its coords (or its defining constraint).
+5. If the user asks to add an element, append the necessary steps (and hide helpers with "visible": false).
+6. Keep every referenced id defined by an earlier step; ids unique.
+${JXG_COMMON_RULES}`;
+
 // Per-user queue and current request tracking.
 const userQueues = new Map();
 // 任务事件环形缓冲，供管理后台查看（新任务在前）；持久化到磁盘，重启不丢
@@ -383,7 +453,11 @@ async function runWithRetry(fn, retries = 3, delayMs = 1500) {
   throw lastError;
 }
 
-function callKimi(apiKey, model, messages, userId) {
+function callKimi(apiKey, model, messages, userId, endpoint) {
+  const ep = endpoint || {};
+  const hostname = ep.hostname || 'api.moonshot.cn';
+  const apiPath = ep.path || '/v1/chat/completions';
+  const label = ep.label || 'Kimi';
   const state = getUserQueueState(userId);
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true } });
@@ -401,9 +475,9 @@ function callKimi(apiKey, model, messages, userId) {
     };
 
     state.currentRequest = https.request({
-      hostname: 'api.moonshot.cn',
+      hostname,
       port: 443,
-      path: '/v1/chat/completions',
+      path: apiPath,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -422,7 +496,7 @@ function callKimi(apiKey, model, messages, userId) {
             const parsed = JSON.parse(body);
             if (parsed.error) msg = parsed.error.message || JSON.stringify(parsed.error);
           } catch { /* keep raw body */ }
-          const e = new Error(`Kimi HTTP ${response.statusCode}: ${msg}`);
+          const e = new Error(`${label} HTTP ${response.statusCode}: ${msg}`);
           e.providerCallId = providerCallId;
           fail(e);
         });
@@ -471,7 +545,7 @@ function callKimi(apiKey, model, messages, userId) {
     // 超时必须销毁连接，否则僵尸请求会一直占用组织唯一的并发槽位
     state.currentRequest.setTimeout(300000, () => {
       const req = state.currentRequest;
-      if (req) req.destroy(new Error('Kimi request timed out'));
+      if (req) req.destroy(new Error(`${label} request timed out`));
     });
     state.currentRequest.write(payload);
     state.currentRequest.end();
@@ -560,10 +634,10 @@ function parseJsonContent(content) {
   return parsed;
 }
 
-function buildCorrectionFeedback(invalid, isIncremental) {
+function buildCorrectionFeedback(invalid, isIncremental, kind) {
   const lines = invalid.map((v, i) => (i + 1) + '. ' + JSON.stringify(v.item) + '\n   Reason: ' + v.reason);
-  const kind = isIncremental ? 'operations array' : 'commands array';
-  return 'Some entries in your previous ' + kind + ' are invalid:\n' + lines.join('\n') +
+  const kindText = kind || (isIncremental ? 'operations array' : 'commands array');
+  return 'Some entries in your previous ' + kindText + ' are invalid:\n' + lines.join('\n') +
     '\n\nOutput the complete corrected JSON again. Use ONLY commands from the verified reference. ' +
     'If an element cannot be expressed with the allowed commands, omit it.';
 }
@@ -571,15 +645,18 @@ function buildCorrectionFeedback(invalid, isIncremental) {
 function callRefineFromText(text, currentCommands, history, options = {}) {
     const model = options.model || settings.resolveModelId('text');
   const userId = options.userId;
-  const isIncremental = options.mode === 'incremental' || (Array.isArray(options.currentObjects) && options.currentObjects.length > 0);
+  const isJxg = options.format === 'jxg';
+  const isIncremental = !isJxg && (options.mode === 'incremental' || (Array.isArray(options.currentObjects) && options.currentObjects.length > 0));
   const historyText = (history || []).map(h => {
     const role = h.role || (h.user ? 'user' : 'kimi');
     const textPart = h.text || h.user || (Array.isArray(h.response) ? h.response.join('\n') : h.response || '');
     return `${role === 'user' ? 'User' : 'Kimi'}: ${textPart}`;
   }).join('\n\n');
 
-  let systemPrompt = SYSTEM_PROMPT_REFINE;
-  let userContent = `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}`;
+  let systemPrompt = isJxg ? SYSTEM_PROMPT_JXG_REFINE : SYSTEM_PROMPT_REFINE;
+  let userContent = isJxg
+    ? `Original problem:\n${text}\n\nCurrent JSON construction steps:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}`
+    : `Original problem:\n${text}\n\nCurrent GeoGebra commands:\n${currentCommands}\n\n${historyText ? 'Adjustment history:\n' + historyText + '\n\n' : ''}New adjustment instruction:\n${options.instruction || ''}`;
 
   if (isIncremental) {
     systemPrompt = SYSTEM_PROMPT_INCREMENTAL;
@@ -595,17 +672,21 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
   return (async () => {
     let content = await chatCompletion(messages, { model, userId });
     let parsed = parseJsonContent(content);
-    let validation = isIncremental
+    let validation = isJxg
+      ? jxg.validateSteps(parsed.jxgSteps)
+      : isIncremental
       ? ggb.validateOperations(parsed.operations)
       : ggb.validateCommands(parsed.commands);
 
     // Plan 2: deterministic server-side check; feed concrete errors back for one retry.
     if (validation.invalid.length > 0) {
       messages.push({ role: 'assistant', content });
-      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, isIncremental) });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, isIncremental, isJxg ? 'jxgSteps array' : null) });
       content = await chatCompletion(messages, { model, userId });
       parsed = parseJsonContent(content);
-      validation = isIncremental
+      validation = isJxg
+        ? jxg.validateSteps(parsed.jxgSteps)
+        : isIncremental
         ? ggb.validateOperations(parsed.operations)
         : ggb.validateCommands(parsed.commands);
     }
@@ -616,8 +697,10 @@ function callRefineFromText(text, currentCommands, history, options = {}) {
       commands: Array.isArray(parsed.commands) ? parsed.commands : [],
       assumptions: parsed.assumptions || []
     };
-    if (isIncremental) {
+    if (isIncremental && !isJxg) {
       result.operations = validation.valid;
+    } else if (isJxg) {
+      result.jxgSteps = validation.valid;
     } else {
       result.commands = validation.valid;
     }
@@ -679,16 +762,17 @@ function callAnalyzeOnce(base64, options = {}) {
   const hasImage = !!base64;
   const model = options.model || settings.resolveModelId(hasImage ? 'vision' : 'text');
   const userId = options.userId;
+  const isJxg = options.format === 'jxg';
 
   const content = [];
   if (base64) {
     content.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } });
-    content.push({ type: 'text', text: '识别这道题并生成作图指令。' });
+    content.push({ type: 'text', text: isJxg ? '识别这道题并生成作图步骤。' : '识别这道题并生成作图指令。' });
   } else {
-    content.push({ type: 'text', text: '识别并处理下面的几何题，生成作图指令：\n' + (options.text || '') });
+    content.push({ type: 'text', text: (isJxg ? '识别并处理下面的几何题，生成作图步骤：\n' : '识别并处理下面的几何题，生成作图指令：\n') + (options.text || '') });
   }
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT_ONESHOT },
+    { role: 'system', content: isJxg ? SYSTEM_PROMPT_JXG_ONESHOT : SYSTEM_PROMPT_ONESHOT },
     { role: 'user', content },
   ];
 
@@ -696,24 +780,35 @@ function callAnalyzeOnce(base64, options = {}) {
     const taskType = hasImage ? 'vision' : 'text';
     let contentText = await chatCompletion(messages, { model, userId, taskType });
     let parsed = parseJsonContent(contentText);
-    let validation = ggb.validateCommands(parsed.commands);
+    let validation = isJxg
+      ? jxg.validateSteps(parsed.jxgSteps)
+      : ggb.validateCommands(parsed.commands);
 
     if (validation.invalid.length > 0) {
       messages.push({ role: 'assistant', content: contentText });
-      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false) });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false, isJxg ? 'jxgSteps array' : null) });
       contentText = await chatCompletion(messages, { model, userId, taskType });
       parsed = parseJsonContent(contentText);
-      validation = ggb.validateCommands(parsed.commands);
+      validation = isJxg
+        ? jxg.validateSteps(parsed.jxgSteps)
+        : ggb.validateCommands(parsed.commands);
     }
 
-    return {
+    const result = {
       rawText: parsed.rawText || '',
       completedText: parsed.completedText || parsed.rawText || '',
       constructibility: parsed.constructibility || '',
       constructNote: parsed.constructNote || '',
-      commands: Array.isArray(parsed.commands) ? parsed.commands : [],
-      warnings: validation.invalid.map((x) => `${x.item}: ${x.reason}`),
     };
+    if (isJxg) {
+      result.jxgSteps = validation.valid;
+    } else {
+      result.commands = Array.isArray(parsed.commands) ? parsed.commands : [];
+    }
+    if (validation.invalid.length > 0) {
+      result.warnings = validation.invalid.map((x) => `${x.item}: ${x.reason}`);
+    }
+    return result;
   })();
 }
 
@@ -730,8 +825,12 @@ function analyzeOnce(base64, options = {}) {
 function callAnalyzeConstruction(text, options = {}) {
   const model = options.model || settings.resolveModelId('text');
   const userId = options.userId;
+  const isJxg = options.format === 'jxg';
 
-  const messages = [
+  const messages = isJxg ? [
+    { role: 'system', content: SYSTEM_PROMPT_JXG_CONSTRUCTION },
+    { role: 'user', content: `Analyze the construction of this geometry problem and produce the construction plan and JSON construction steps:\n\n${text}` }
+  ] : [
     { role: 'system', content: SYSTEM_PROMPT_CONSTRUCTION },
     { role: 'user', content: `Analyze the construction of this geometry problem and produce the construction plan and GeoGebra commands:\n\n${text}` }
   ];
@@ -739,14 +838,18 @@ function callAnalyzeConstruction(text, options = {}) {
   return (async () => {
     let content = await chatCompletion(messages, { model, userId });
     let parsed = parseJsonContent(content);
-    let validation = ggb.validateCommands(parsed.commands);
+    let validation = isJxg
+      ? jxg.validateSteps(parsed.jxgSteps)
+      : ggb.validateCommands(parsed.commands);
 
     if (validation.invalid.length > 0) {
       messages.push({ role: 'assistant', content });
-      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false) });
+      messages.push({ role: 'user', content: buildCorrectionFeedback(validation.invalid, false, isJxg ? 'jxgSteps array' : null) });
       content = await chatCompletion(messages, { model, userId });
       parsed = parseJsonContent(content);
-      validation = ggb.validateCommands(parsed.commands);
+      validation = isJxg
+        ? jxg.validateSteps(parsed.jxgSteps)
+        : ggb.validateCommands(parsed.commands);
     }
 
     const steps = Array.isArray(parsed.steps) ? parsed.steps.map((s, i) => ({
@@ -759,10 +862,14 @@ function callAnalyzeConstruction(text, options = {}) {
 
     const result = {
       steps,
-      commands: validation.valid,
       constructibility: parsed.constructibility || '',
       constructNote: parsed.constructNote || '',
     };
+    if (isJxg) {
+      result.jxgSteps = validation.valid;
+    } else {
+      result.commands = validation.valid;
+    }
     if (validation.invalid.length > 0) {
       result.warnings = validation.invalid.map(v => v.reason);
     }
@@ -784,6 +891,9 @@ module.exports = {
   chatCompletionDetailed,
   SYSTEM_PROMPT_IMAGE_ANALYZE,
   SYSTEM_PROMPT_CONSTRUCTION,
+  SYSTEM_PROMPT_JXG_CONSTRUCTION,
+  SYSTEM_PROMPT_JXG_ONESHOT,
+  SYSTEM_PROMPT_JXG_REFINE,
   getTaskEvents,
   runTask: enqueue,
   cancelCurrentRequest

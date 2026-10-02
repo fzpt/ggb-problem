@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { loadGgbScript } from '../lib/ggb-script';
+import { loadGgbScript, useLocalGgbCodebase } from '../lib/ggb-script';
 import { runCommandLine } from '../lib/ggb';
 
 const LS_KEY = 'ggb-console-script';
@@ -57,6 +57,7 @@ export default function CommandConsole() {
           },
         };
         const applet = new window.GGBApplet(params, true);
+        useLocalGgbCodebase(applet);
         applet.inject(stageRef.current.id);
       })
       .catch(() => setStatus('GeoGebra 脚本加载失败，请检查网络'));

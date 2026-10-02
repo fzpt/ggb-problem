@@ -15,6 +15,9 @@ label{display:block;font-weight:600;margin:8px 0 4px;font-size:13px}
 pre{white-space:pre-wrap;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:12.5px;max-height:200px;overflow:auto;margin:0}
 #ggb-wrap{border:1px solid #ccc;border-radius:4px}
 #errs{color:#a00;font-size:12px;margin-top:6px;white-space:pre-wrap}
+#exec-result{font-size:12px;margin-top:4px;white-space:pre-wrap}
+#exec-input{width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:4px;padding:6px;font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+
 img{max-width:100%;border:1px solid #ccc;border-radius:4px}
 .copy-btn{margin-top:6px;padding:4px 10px;font-size:12px;border:1px solid #999;border-radius:4px;background:#fff;cursor:pointer}
 </style>
@@ -71,7 +74,11 @@ SetVisibleInView(Q1, 1, false)
 SetVisibleInView(Q2, 1, false)
 SetVisibleInView(l_AM, 1, false)
 SetVisibleInView(l_PQ, 1, false)</pre>
-    <button class="copy-btn" onclick="copyCommands()">复制指令（可直接粘贴到指令控制台）</button>
+    <button id="copy-btn" class="copy-btn" onclick="copyCommands()">复制指令（可直接粘贴到指令控制台）</button>
+    <label>追加执行指令</label>
+    <textarea id="exec-input" rows="3" placeholder="GeoGebra 指令，每行一条，例如 Z = (1, 1)、Segment(A, B)；执行后立即在右侧图形生效"></textarea>
+    <button class="copy-btn" onclick="execMore()">执行指令</button>
+    <div id="exec-result"></div>
     <div id="errs"></div>
   </div>
   <div class="right">
@@ -80,31 +87,52 @@ SetVisibleInView(l_PQ, 1, false)</pre>
 </div>
 <script>
 var commands = ["A = (2, 4)","B = (0, 0)","C = (6, 0)","M = Midpoint(B, C)","l_bis = AngleBisector(B, A, C)","l_BC = Line(B, C)","D = Intersect(l_bis, l_BC)","P = A + (A - D)","c_circ = Circle(P, B, C)","l_AD = Line(A, D)","l_MQ = Line(M, l_AD)","Q1 = Intersect(c_circ, l_MQ, 1)","Q2 = Intersect(c_circ, l_MQ, 2)","sideP = (x(C) - x(B)) * (y(P) - y(B)) - (y(C) - y(B)) * (x(P) - x(B))","sideQ1 = (x(C) - x(B)) * (y(Q1) - y(B)) - (y(C) - y(B)) * (x(Q1) - x(B))","Q = If(sideP * sideQ1 < 0, Q1, Q2)","l_AM = Line(A, M)","l_PQ = Line(P, Q)","R = Intersect(l_PQ, l_AM)","segAB = Segment(A, B)","segAC = Segment(A, C)","segBC = Segment(B, C)","segAD = Segment(A, D)","segAM = Segment(A, M)","segPB = Segment(P, B)","segPC = Segment(P, C)","segPQ = Segment(P, Q)","segBQ = Segment(Q, B)","segCQ = Segment(Q, C)","segBR = Segment(B, R)","segCR = Segment(C, R)","SetVisibleInView(l_bis, 1, false)","SetVisibleInView(l_BC, 1, false)","SetVisibleInView(l_AD, 1, false)","SetVisibleInView(l_MQ, 1, false)","SetVisibleInView(c_circ, 1, false)","SetVisibleInView(Q1, 1, false)","SetVisibleInView(Q2, 1, false)","SetVisibleInView(l_AM, 1, false)","SetVisibleInView(l_PQ, 1, false)"];
+var ggbApi = null;
+var SVIV_RE = /^(?:[\w\u0370-\u03ff]+\s*=\s*)?SetVisibleInView\(\s*([^,]+?)\s*,\s*\d+\s*,\s*(true|false)\s*\)$/i;
+function runCmd(api, c) {
+  var m = c.match(SVIV_RE);
+  if (m) { api.setVisible(m[1], m[2] === 'true'); return true; }
+  return api.evalCommand(c);
+}
 function copyCommands() {
   var text = commands.join('\n');
-  var done = function () {
-    var b = document.querySelector('.copy-btn');
-    b.textContent = '已复制，可粘贴到指令控制台';
-    setTimeout(function () { b.textContent = '复制指令（可直接粘贴到指令控制台）'; }, 2000);
+  var b = document.getElementById('copy-btn');
+  var done = function (msg) {
+    b.textContent = msg;
+    setTimeout(function () { b.textContent = '复制指令（可直接粘贴到指令控制台）'; }, 2500);
   };
-  var fallback = function () {
+  var legacy = function () {
     var ta = document.createElement('textarea');
     ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
-    try {
-      document.execCommand('copy');
-      done();
-    } catch (e) {
-      window.prompt('自动复制失败，请手动复制：', text);
-    }
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
     document.body.removeChild(ta);
+    if (ok) { done('已复制，可粘贴到指令控制台'); }
+    else { done('复制失败：请手动选择上方指令，Ctrl+C 复制'); }
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(fallback);
-  } else {
-    fallback();
-  }
+    navigator.clipboard.writeText(text).then(function () {
+      done('已复制，可粘贴到指令控制台');
+    }).catch(legacy);
+  } else { legacy(); }
+}
+function execMore() {
+  var ta = document.getElementById('exec-input');
+  var out = document.getElementById('exec-result');
+  if (!ggbApi) { out.textContent = 'GeoGebra 尚未加载完成，请稍候。'; out.style.color = '#a00'; return; }
+  var lines = ta.value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && !s.startsWith('//'); });
+  var errs = [], ok = 0;
+  lines.forEach(function (c) {
+    try { if (runCmd(ggbApi, c)) { ok++; } else { errs.push(c + '  -> 返回 false'); } }
+    catch (e) { errs.push(c + '  -> ' + e.message); }
+  });
+  out.style.color = errs.length ? '#a00' : '#060';
+  out.textContent = '执行完成：' + ok + ' 条成功' + (errs.length ? '\n失败：\n' + errs.join('\n') : '');
 }
 var params = {
   appName: 'geometry',
@@ -114,18 +142,17 @@ var params = {
   showAlgebraInput: false,
   showMenuBar: false,
   appletOnLoad: function (api) {
+    ggbApi = api;
     var errs = [];
     commands.forEach(function (c) {
       try {
-        if (!api.evalCommand(c)) errs.push(c + '  -> 返回 false');
+        if (!runCmd(api, c)) errs.push(c + '  -> 返回 false');
       } catch (e) {
         errs.push(c + '  -> ' + e.message);
       }
     });
     if (errs.length) {
-      document.getElementById('errs').textContent = '执行失败的指令：
-' + errs.join('
-');
+      document.getElementById('errs').textContent = '执行失败的指令：\n' + errs.join('\n');
     }
   }
 };

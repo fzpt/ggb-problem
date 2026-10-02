@@ -351,11 +351,29 @@ body {
   color: #64748b;
 }
 
+.edit-badge.engine {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+/* 模式开关内的分隔（如 JSXGraph / GeoGebra 与 合并/两步 之间） */
+.mode-switch .tool-sep {
+  width: 1px;
+  background: var(--border-strong);
+}
+
 /* 只读态提示（题目文字区/调整输入区） */
 .readonly-hint {
   margin: 0.25rem 0 0;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* 只读模式：隐藏工具栏与代数输入（禁止新增对象入口） */
+.geo-applet.readonly #ggbApplet .toolbar,
+.geo-applet.readonly #ggbApplet .avInputItem,
+.geo-applet.readonly #ggbApplet .algebraViewObjectStylebar {
+  display: none !important;
 }
 
 .main-area {

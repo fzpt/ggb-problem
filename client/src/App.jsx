@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import ProblemList from './components/ProblemList';
 import GeoGebraViewer from './components/GeoGebraViewer';
+import JxgViewer from './components/JxgViewer';
 import SessionPanel from './components/SessionPanel';
 import AuthModal from './components/AuthModal';
 import HomeEntry from './components/HomeEntry';
@@ -21,12 +22,12 @@ function useHashRoute() {
 }
 
 function Workspace() {
-  const { user, authChecked } = useApp();
+  const { user, authChecked, activeProblem } = useApp();
   return (
     <div className="app-shell">
       <ProblemList />
       <main className="main-area">
-        <GeoGebraViewer />
+        {activeProblem?.engine === 'jxg' ? <JxgViewer /> : <GeoGebraViewer />}
         <SessionPanel />
       </main>
       {authChecked && !user && <AuthModal />}

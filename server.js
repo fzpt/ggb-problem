@@ -147,15 +147,17 @@ app.post('/api/analyze-image', requireAuth, async (req, res, next) => {
 });
 
 // Construction order analysis + GeoGebra commands from problem text
-app.post('/api/construction-analysis', requireAuth, async (req, res, next) => {
-  try {
-    const { text, provider } = req.body || {};
-    if (!text) {
-      return res.status(400).json({ error: 'Text is required' });
-    }
-    const result = await providers.analyzeConstruction(text, provider, {
-      userId: req.userId,
-    });
+  app.post('/api/construction-analysis', requireAuth, async (req, res, next) => {
+    try {
+      const { text, provider, format, model } = req.body || {};
+      if (!text) {
+        return res.status(400).json({ error: 'Text is required' });
+      }
+      const result = await providers.analyzeConstruction(text, provider, {
+        userId: req.userId,
+        format,
+        model,
+      });
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {
     next(err);
@@ -163,17 +165,19 @@ app.post('/api/construction-analysis', requireAuth, async (req, res, next) => {
 });
 
 // 合并一步：识别 + 完善题目 + 可构造性判定 + 作图指令，单次 LLM 调用
-app.post('/api/analyze-once', requireAuth, async (req, res, next) => {
-  try {
-    const { image, text, provider } = req.body || {};
-    if (!image && !text) {
-      return res.status(400).json({ error: 'Image or text is required' });
-    }
-    const base64 = image ? stripDataUrl(image) : '';
-    const result = await providers.analyzeOnce(base64, provider, {
-      userId: req.userId,
-      text,
-    });
+  app.post('/api/analyze-once', requireAuth, async (req, res, next) => {
+    try {
+      const { image, text, provider, format, model } = req.body || {};
+      if (!image && !text) {
+        return res.status(400).json({ error: 'Image or text is required' });
+      }
+      const base64 = image ? stripDataUrl(image) : '';
+      const result = await providers.analyzeOnce(base64, provider, {
+        userId: req.userId,
+        text,
+        format,
+        model,
+      });
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {
     next(err);
@@ -183,17 +187,17 @@ app.post('/api/analyze-once', requireAuth, async (req, res, next) => {
 // Refine commands
 app.post('/api/refine', requireAuth, async (req, res, next) => {
   try {
-    const { text, currentCommands, history, instruction, provider, currentObjects, mode } = req.body || {};
-    if (!instruction) {
-      return res.status(400).json({ error: 'Instruction is required' });
-    }
-    const result = await providers.refineGeometryCommands(
-      text,
-      currentCommands,
-      history,
-      provider,
-      { instruction, userId: req.userId, currentObjects, mode }
-    );
+      const { text, currentCommands, history, instruction, provider, currentObjects, mode, format, model } = req.body || {};
+      if (!instruction) {
+        return res.status(400).json({ error: 'Instruction is required' });
+      }
+      const result = await providers.refineGeometryCommands(
+        text,
+        currentCommands,
+        history,
+        provider,
+        { instruction, userId: req.userId, currentObjects, mode, format, model }
+      );
     res.json({ ...result, provider: provider || config.llm.provider });
   } catch (err) {
     next(err);
@@ -349,16 +353,6 @@ app.get('/api/admin/ai-calls', requireAdmin, (req, res, next) => {
     const limit = Number(req.query.limit) || 200;
     const { calls, summary } = db.queryAiCalls({ days, limit });
     res.json({ calls, summary });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.post('/api/state', requireAuth, (req, res, next) => {
-  try {
-    const { problems, activeProblemId } = req.body || {};
-    db.saveState(req.userId, Array.isArray(problems) ? problems : [], activeProblemId || null);
-    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

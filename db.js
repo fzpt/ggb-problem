@@ -102,6 +102,8 @@ function migrateProblemAttributes() {
   if (!cols.includes('difficulty')) addColumn('ALTER TABLE problems ADD COLUMN difficulty INTEGER');
   if (!cols.includes('refine_history')) addColumn("ALTER TABLE problems ADD COLUMN refine_history TEXT DEFAULT '[]'");
   if (!cols.includes('refine_input')) addColumn("ALTER TABLE problems ADD COLUMN refine_input TEXT DEFAULT ''");
+  if (!cols.includes('engine')) addColumn("ALTER TABLE problems ADD COLUMN engine TEXT DEFAULT 'ggb'");
+  if (!cols.includes('jxg_steps')) addColumn('ALTER TABLE problems ADD COLUMN jxg_steps TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_problems_year ON problems(exam_year)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_problems_difficulty ON problems(difficulty)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_problems_source ON problems(exam_type, exam_region)');
@@ -137,9 +139,16 @@ function migrateProblemsForeignKey() {
       exam_region TEXT,
       difficulty INTEGER,
       refine_history TEXT DEFAULT '[]',
-      refine_input TEXT DEFAULT ''
+      refine_input TEXT DEFAULT '',
+      engine TEXT DEFAULT 'ggb',
+      jxg_steps TEXT
     );
-    INSERT INTO problems SELECT * FROM problems_old;
+    INSERT INTO problems (id, user_id, name, image_data_url, ocr_text, commands, ggb_state,
+      active_tab, ocr_provider, llm_provider, created_at, updated_at,
+      exam_type, exam_year, exam_region, difficulty, refine_history, refine_input)
+      SELECT id, user_id, name, image_data_url, ocr_text, commands, ggb_state,
+      active_tab, ocr_provider, llm_provider, created_at, updated_at,
+      exam_type, exam_year, exam_region, difficulty, refine_history, refine_input FROM problems_old;
     DROP TABLE problems_old;
     CREATE INDEX IF NOT EXISTS idx_problems_user ON problems(user_id);
   `);
@@ -165,10 +174,6 @@ function setActiveProblemId(userId, problemId) {
     problemId,
     userId
   );
-}
-
-function deleteUserProblems(userId) {
-  db.prepare('DELETE FROM problems WHERE user_id = ?').run(userId);
 }
 
 function migrateLegacyUsers() {
@@ -222,8 +227,10 @@ function rowToProblem(row) {
     examRegion: row.exam_region || null,
     difficulty: row.difficulty || null,
     tags: row.tags || [],
-      refineHistory: safeParseJsonArray(row.refine_history),
-      refineInput: row.refine_input || '',
+    refineHistory: safeParseJsonArray(row.refine_history),
+    refineInput: row.refine_input || '',
+    engine: row.engine || 'ggb',
+      jxgSteps: safeParseJsonArray(row.jxg_steps),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -283,7 +290,7 @@ function upsertProblem(userId, p) {
           name = ?, image_data_url = ?, ocr_text = ?, commands = ?, ggb_state = ?,
           active_tab = ?, ocr_provider = ?, llm_provider = ?, updated_at = ?,
           exam_type = ?, exam_year = ?, exam_region = ?, difficulty = ?,
-          refine_history = ?, refine_input = ?
+          refine_history = ?, refine_input = ?, engine = ?, jxg_steps = ?
         WHERE id = ? AND user_id = ?
       `).run(
         p.name,
@@ -301,16 +308,19 @@ function upsertProblem(userId, p) {
         Number.isFinite(p.difficulty) ? p.difficulty : null,
         JSON.stringify(Array.isArray(p.refineHistory) ? p.refineHistory : []),
         p.refineInput || '',
+          p.engine === 'jxg' ? 'jxg' : 'ggb',
+          p.jxgSteps ? JSON.stringify(p.jxgSteps) : null,
         p.id,
         userId
       );
     } else {
-      db.prepare(`
+        db.prepare(`
         INSERT INTO problems (
           id, user_id, name, image_data_url, ocr_text, commands, ggb_state,
           active_tab, ocr_provider, llm_provider, created_at, updated_at,
-          exam_type, exam_year, exam_region, difficulty, refine_history, refine_input
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          exam_type, exam_year, exam_region, difficulty, refine_history, refine_input,
+          engine, jxg_steps
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         p.id,
         userId,
@@ -329,7 +339,9 @@ function upsertProblem(userId, p) {
         p.examRegion || null,
         Number.isFinite(p.difficulty) ? p.difficulty : null,
         JSON.stringify(Array.isArray(p.refineHistory) ? p.refineHistory : []),
-        p.refineInput || ''
+        p.refineInput || '',
+          p.engine === 'jxg' ? 'jxg' : 'ggb',
+          p.jxgSteps ? JSON.stringify(p.jxgSteps) : null
       );
     }
     // 该题标签全量替换（题量小，直接删了重插）
@@ -357,63 +369,6 @@ function deleteProblemById(userId, problemId) {
   tx();
 }
 
-function saveState(userId, problems, activeProblemId) {
-  const now = Date.now();
-  const tx = db.transaction(() => {
-    // 级联清理旧关联标签（problems 即将全量替换）
-    db.prepare('DELETE FROM problem_tags WHERE problem_id IN (SELECT id FROM problems WHERE user_id = ?)').run(userId);
-    deleteUserProblems(userId);
-    const insert = db.prepare(
-      `INSERT INTO problems (
-        id, user_id, name, image_data_url, ocr_text, commands, ggb_state,
-        active_tab, ocr_provider, llm_provider, created_at, updated_at,
-        exam_type, exam_year, exam_region, difficulty
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const insertTag = db.prepare('INSERT OR IGNORE INTO problem_tags (problem_id, tag) VALUES (?, ?)');
-    const upsertVocab = db.prepare(
-      'INSERT OR IGNORE INTO knowledge_tags (name, category, created_at) VALUES (?, NULL, ?)'
-    );
-    for (const p of problems) {
-      insert.run(
-        p.id,
-        userId,
-        p.name,
-        p.imageDataUrl || null,
-        p.ocrText || '',
-        p.commands || '',
-        p.ggbState || '',
-        p.activeTab || 'image',
-        p.ocrProvider || 'baidu',
-        p.llmProvider || 'kimi',
-        p.created_at || now,
-        // 客户端只在"有实质编辑"时刷新 updated_at；纯图形移动（画布自动保存）
-        // 传来的仍是旧值，据此保留原修改时间
-        p.updated_at || now,
-        p.examType || null,
-        Number.isFinite(p.examYear) ? p.examYear : null,
-        p.examRegion || null,
-        Number.isFinite(p.difficulty) ? p.difficulty : null
-      );
-      const tags = Array.isArray(p.tags) ? p.tags.map((t) => String(t).trim()).filter(Boolean) : [];
-      for (const tag of tags) {
-        insertTag.run(p.id, tag);
-        upsertVocab.run(tag, now);
-      }
-    }
-    // 题目已被删除（saveState 是全量替换），级联清理其版本快照
-    const keptIds = problems.map((p) => p.id);
-    if (keptIds.length) {
-      db.prepare(
-        `DELETE FROM problem_versions WHERE user_id = ? AND problem_id NOT IN (${keptIds.map(() => '?').join(',')})`
-      ).run(userId, ...keptIds);
-    } else {
-      db.prepare('DELETE FROM problem_versions WHERE user_id = ?').run(userId);
-    }
-    setActiveProblemId(userId, activeProblemId);
-  });
-  tx();
-}
 
 // 组合查询：年份/地区/类型/难度上限/知识点，均可选；仅返回当前用户的题目
 function queryProblems(userId, filters = {}) {
@@ -566,7 +521,9 @@ function insertAiCall({ callId, providerCallId, userId, model, taskType, usage, 
 }
 
 // ---------- 题目编辑锁 ----------
-const LOCK_STALE_MS = 35000;
+// 后台标签页浏览器会把 setInterval 节流（最差 1 分钟一次），
+// 失联窗口放宽到 90s，避免"窗口还在却被判定失联"的误接管
+const LOCK_STALE_MS = 90000;
 
 // 加锁/续期：已被其他实例持有且未失联时返回 { ok: false, lockedBy }；
 // force=true 强制接管（用于用户确认后的接管）。
@@ -638,10 +595,8 @@ module.exports = {
   migrateLegacyUsers,
   getUserById,
   setActiveProblemId,
-  deleteUserProblems,
   rowToProblem,
   getProblemsByUser,
-  saveState,
   loadState,
   upsertProblem,
   deleteProblemById,

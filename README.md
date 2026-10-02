@@ -174,3 +174,25 @@ set KIMI_MODEL=kimi-k2.7-code
 - 当前坐标在题目未给出时采用默认定位（第一个点放原点，底边放 x 轴）。
 - 复杂约束（垂直、平行、等长、相切等）目前以注释形式保留，后续会转成 GeoGebra 构造命令。
 - `.env` 文件包含 API key，不会被提交到 Git。
+
+## GeoGebra 本地运行库（自托管）
+
+项目不再引用 geogebra.org 的嵌入服务，GeoGebra Web 运行库（deployggb.js + web3d，约 22 MB，
+官方构建版本 5.4.920.0，未修改原文件）完整镜像在本地：
+
+- `client/public/ggb/` —— 主应用使用（vite 构建时自动复制到 `dist/ggb/`，同源 `/ggb/` 提供）
+- `scripts/ggb/` —— 测试脚本 `kimi-direct-test.js` 生成的查看页使用（file:// 相对路径）
+
+两个目录都由脚本生成，已加入 `.gitignore`，不进入 Git 仓库。如需重新下载或升级版本：
+
+```bash
+node scripts/download-ggb.mjs "https://www.geogebra.org/apps/<版本号>/" client/public/ggb/web3d
+node scripts/download-ggb-css.mjs "https://www.geogebra.org/apps/<版本号>/" client/public/ggb
+# 同步给测试脚本用
+Remove-Item scripts/ggb -Recurse -Force
+Copy-Item client/public/ggb scripts/ggb -Recurse
+```
+
+应用代码中通过 `useLocalGgbCodebase(applet)`（见 `client/src/lib/ggb-script.js`）在 inject 前把
+applet 指向 `/ggb/web3d/`。GeoGebra 按 GPL 许可分发，本项目以独立组件方式原样加载、未修改其
+源码，应用自身代码与 GeoGebra 运行时保持解耦。

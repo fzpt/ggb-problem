@@ -1,0 +1,62 @@
+<!-- GeoGebra 本地镜像冒烟测试页。用法（在仓库根目录）：
+     node scripts/download-ggb.mjs 之后，用任意静态服务器把 client/public 挂到根路径，
+     例如 npx serve client/public，然后访问 /ggb-local-smoke.html（需把本文件复制进
+     client/public），或直接由开发服务器提供。页面加载 applet 并执行 __smokeCommands
+     里的全部指令，配合浏览器 Network 面板确认无 geogebra.org 请求、无 404。 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ggb local smoke</title></head>
+<body>
+<div id="ggb-el" style="width:800px;height:600px"></div>
+<script src="/ggb/deployggb.js"></script>
+<script>
+  var applet = new GGBApplet({
+    appName: 'geometry',
+    width: 800,
+    height: 600,
+    showToolBar: false,
+    showAlgebraInput: false,
+    enableRightClick: false,
+    borderColor: '#ffffff',
+  }, true);
+  applet.setHTML5Codebase('/ggb/web3d/');
+  applet.inject('ggb-el');
+  window.__ggbReady = new Promise(function (resolve) {
+    var t0 = Date.now();
+    var iv = setInterval(function () {
+      if (window.ggbApplet && window.ggbApplet.evalCommand) {
+        clearInterval(iv);
+        resolve(Date.now() - t0);
+      } else if (Date.now() - t0 > 30000) {
+        clearInterval(iv);
+        resolve(-1);
+      }
+    }, 200);
+  });
+  window.__smokeCommands = [
+    "A = (0, 0)",
+    "B = (9, 0)",
+    "C = (7, 3.4641016)",
+    "cAux = Circle(A, Distance(B, C))",
+    "sAB = Segment(A, B)",
+    "D = Intersect(cAux, sAB, 1)",
+    "angB = Angle(A, B, C)",
+    "alpha = (180 - angB) / 2",
+    "BRot = Rotate(B, alpha, D)",
+    "lAux = Line(D, BRot)",
+    "lAC = Line(A, C)",
+    "F = Intersect(lAux, lAC, 1)",
+    "Segment(A, C)",
+    "Segment(B, C)",
+    "Segment(C, D)",
+    "Segment(D, F)",
+    "SetVisibleInView(cAux, 1, false)",
+    "SetVisibleInView(angB, 1, false)",
+    "PerpendicularBisector(A, B)",
+    "Line(A, C)",
+    "CircularArc(A, B, C)",
+    "Polygon(A, B, C)"
+  ];
+</script>
+</body>
+</html>

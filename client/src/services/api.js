@@ -72,14 +72,14 @@ export function analyzeProblemImage(imageDataUrl, text, signal) {
 }
 
 // 作图分析，返回 { steps: [...], commands: [...], warnings? }
-export function analyzeConstruction(text, signal) {
-  return post('/api/construction-analysis', { text }, signal);
+export function analyzeConstruction(text, signal, format) {
+  return post('/api/construction-analysis', { text, format }, signal);
 }
 
 // 合并一步：识别 + 完善题目 + 可构造性判定 + 作图指令，单次调用完成
 // 返回 { rawText, completedText, constructibility, constructNote, commands, warnings? }
-export function analyzeOnce(imageDataUrl, text, signal) {
-  return post('/api/analyze-once', { image: imageDataUrl || undefined, text: text || undefined }, signal);
+export function analyzeOnce(imageDataUrl, text, signal, format) {
+  return post('/api/analyze-once', { image: imageDataUrl || undefined, text: text || undefined, format }, signal);
 }
 
 export function refineCommands(
@@ -99,6 +99,7 @@ export function refineCommands(
     provider,
     currentObjects: options.currentObjects,
     mode: options.mode,
+    format: options.format,
   }, signal);
 }
 
@@ -177,10 +178,6 @@ export async function loadState() {
     throw new Error(data.error || data.message || text || `请求失败 ${res.status}`);
   }
   return data;
-}
-
-export function saveState(state) {
-  return post('/api/state', state);
 }
 
 // 每题增删改（增量同步）

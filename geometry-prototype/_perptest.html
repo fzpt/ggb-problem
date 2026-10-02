@@ -1,0 +1,176 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<script src="vendor/jsxgraphcore.js"></script>
+</head><body>
+<div id="jxgbox" style="width:600px;height:400px"></div>
+<script>
+var createdIds = [];
+var autoN = 0;
+function nextId(p){ autoN++; return (p||'el')+autoN; }
+function allocName(want, prefix){
+  if (want) {
+    var taken = !!board.objects[want];
+    if (!taken) { for (var i=0;i<createdIds.length;i++){ var o=board.objects[createdIds[i]]; if(o&&o.name===want){taken=true;break;} } }
+    if (!taken) return want;
+  }
+  return nextId(prefix);
+}
+function trackId(id){ createdIds.push(id); }
+function applyDrivenGray(o){ if(!isDrivenPoint(o)) return; try{ o.setAttribute({strokeColor:'#8e8e93', fillColor:'#8e8e93'}); }catch(e){} }
+function oname(id){ var o = (typeof id==='string') ? board.objects[id] : id; return o ? o.name : '?'; }
+function r4(x){ return Math.round(x*1e4)/1e4; }
+var board = JXG.JSXGraph.initBoard('jxgbox', {boundingbox:[-6,6,6,-6], axis:false, showCopyright:false, showNavigation:false});
+</script>
+<script>
+function perpFootParam(P, A, B) {
+  var ax = A.X(), ay = A.Y();
+  var dx = B.X() - ax, dy = B.Y() - ay;
+  var len2 = dx * dx + dy * dy;
+  if (len2 < 1e-18) return null;
+  var t = ((P.X() - ax) * dx + (P.Y() - ay) * dy) / len2;
+  return { t: t, x: ax + t * dx, y: ay + t * dy };
+}
+
+function checkPerpSeg(P, A, B) {
+  if (P.id === A.id || P.id === B.id) return '对边端点不能与垂线段起点重合，请重新选择。';
+  if (A.id === B.id) return '对边的两个点不能是同一个点，请重新选择。';
+  var dx = B.X() - A.X(), dy = B.Y() - A.Y();
+  var len = Math.hypot(dx, dy);
+  if (len < 1e-12) return '对边两点重合，无法作垂线段，请重新选择。';
+  var dist = Math.abs(dx * (A.Y() - P.Y()) - (A.X() - P.X()) * dy) / len;
+  if (dist < 1e-9) return '起点在对边直线上，无法作垂线段，请重新选择。';
+  return null;
+}
+
+function findPerpSegOf(P, A, B) {
+  for (var i = 0; i < createdIds.length; i++) {
+    var o = board.objects[createdIds[i]];
+    if (!o || o._defKind !== 'perpseg' || !o._psegIds) continue;
+    var q = o._psegIds;
+    if (q[0] === P.id &&
+        ((q[1] === A.id && q[2] === B.id) || (q[1] === B.id && q[2] === A.id))) return o;
+  }
+  return null;
+}
+
+function createPerpSeg(P, A, B, name, skipTrack) {
+  var nm = name || nextId('ps');
+  var H = board.create('point', [
+    function () { var f = perpFootParam(P, A, B); return f ? f.x : P.X(); },
+    function () { var f = perpFootParam(P, A, B); return f ? f.y : P.Y(); }
+  ], { name: allocName('D', 'D'), fixed: true, withLabel: true });
+  H._defKind = 'pfoot';
+  applyDrivenGray(H);
+  var seg = board.create('segment', [P, H], { name: nm });
+  seg._defKind = 'perpseg';
+  seg._psegIds = [P.id, A.id, B.id];
+  seg._footId = H.id;
+  H._segId = seg.id;
+  /* 越界连接段：visible 用函数动态判定，拖动对边端点导致垂足进出范围时自动显隐 */
+  function mkExt(Q, neg) {
+    var e = board.create('segment', [H, Q], {
+      name: '', withLabel: false,
+      visible: function () {
+        var f = perpFootParam(P, A, B);
+        return !!f && (neg ? f.t < 0 : f.t > 1);
+      }
+    });
+    e._defKind = 'psegext';
+    e._segId = seg.id;
+    return e;
+  }
+  mkExt(A, true);
+  mkExt(B, false);
+  if (!skipTrack) trackId(seg.id);
+  return seg;
+}
+
+function objectToStepRaw(o) {
+  if (!o) return null;
+  var nm = o.name || '';
+  var dk = o._defKind;
+  if (dk === 'perpline') return null;   // 垂线的附属线，随垂足步骤一起重建
+  if (dk === 'parhelp') return null;     // 平行工具的隐藏方向点，随平行对象重建
+  if (dk === 'parline') return null;     // 不等长平行线段的隐藏约束线，随线段重建
+  if (dk === 'parend') return null;      // 平行线段的远端端点，随线段步骤一起重建
+  if (dk === 'bishelp') return null;     // 角平分线的隐藏方向点，随角平分线重建
+  if (dk === 'pfoot') return null;       // 垂线段的垂足，随垂线段步骤一起重建
+  if (dk === 'psegext') return null;     // 垂线段的越界连接段，随垂线段步骤一起重建
+  if (dk === 'glider')
+    return { type: 'point', id: nm, on: oname(o._onId), coords: [r4(o.X()), r4(o.Y())] };
+  if (dk === 'mirrorpt')
+    return { type: 'mirrorpt', id: nm, of: oname(o._mirrorIds[0]), axis: oname(o._mirrorIds[1]), t: o._mtype };
+  if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
+    if (o.elType === 'intersection') {
+      if (o._polyEdge)
+        return { type: 'intersection', id: nm,
+                 e1: oname(o.parents[0]), polygon: oname(o._polyEdge.polyId), edge: o._polyEdge.edgeIdx,
+                 index: (o._interIndex !== undefined ? o._interIndex : 0) };
+      return { type: 'intersection', id: nm,
+               e1: oname(o.parents[0]), e2: oname(o.parents[1]),
+               index: (o._interIndex !== undefined ? o._interIndex : 0) };
+    }
+    if (dk === 'footpoint')
+      return { type: 'perpendicular', id: nm,
+               line: oname(o._perpIds[0]), point: oname(o._perpIds[1]) };
+    if (dk === 'midpoint')
+      return { type: 'midpoint', id: nm, p1: oname(o._mpIds[0]), p2: oname(o._mpIds[1]) };
+    if (dk === 'tricenter' && o._tcIds)
+      return { type: 'tricenter', id: nm, kind: o._tcKind,
+               points: [oname(o._tcIds[0]), oname(o._tcIds[1]), oname(o._tcIds[2])] };
+    return { type: 'point', id: nm, coords: [r4(o.X()), r4(o.Y())] };
+  }
+  if (o.elType === 'segment') {
+    if (dk === 'perpseg' && o._psegIds)
+      return { type: 'perpseg', id: nm,
+               point: oname(o._psegIds[0]), p1: oname(o._psegIds[1]), p2: oname(o._psegIds[2]) };
+    if (dk === 'pseg')
+      return { type: 'pseg', id: nm, point: oname(o._parIds[0]), ref: oname(o._parIds[1]), end: oname(o._endId) };
+    if (dk === 'psegfree')
+      return { type: 'psegfree', id: nm, point: oname(o._parIds[0]), ref: oname(o._parIds[1]),
+               len: r4(parSignedLen(o)), end: oname(o._endId) };
+    return { type: 'segment', id: nm, p1: oname(o.parents[0]), p2: oname(o.parents[1]) };
+  }
+  if (o.elType === 'line') {
+    if (dk === 'ray')
+      return { type: 'ray', id: nm, p1: oname(o.parents[0]), p2: oname(o.parents[1]) };
+    if (dk === 'pline')
+      return { type: 'pline', id: nm, point: oname(o._parIds[0]), ref: oname(o._parIds[1]) };
+    if (dk === 'pray')
+      return { type: 'pray', id: nm, point: oname(o._parIds[0]), ref: oname(o._parIds[1]) };
+    if (dk === 'bisector' && o._bisIds)
+      return { type: 'bisector', id: nm,
+               vertex: oname(o._bisIds[0]), p1: oname(o._bisIds[1]), p2: oname(o._bisIds[2]) };
+    return { type: 'line', id: nm, p1: oname(o.parents[0]), p2: oname(o.parents[1]) };
+  }
+  if (o.elType === 'circle') {
+    if (dk === 'circleRadius' || o._radius !== undefined)
+      return { type: 'circle', id: nm, center: oname(o.parents[0]), radius: o._radius };
+    return { type: 'circle', id: nm, center: oname(o.parents[0]), through: oname(o.parents[1]) };
+  }
+  if (o.elType === 'circumcircle' || dk === 'circle3')
+    return { type: 'circle', id: nm, through3: [oname(o.parents[0]), oname(o.parents[1]), oname(o.parents[2])] };
+  if (dk === 'arc3')
+    return { type: 'arc3', id: nm,
+             through3: [oname(o._arc3pts[0]), oname(o._arc3pts[1]), oname(o._arc3pts[2])] };
+  if (o.elType === 'arc' || dk === 'arc')
+    return { type: 'arc', id: nm, center: oname(o.parents[0]), p1: oname(o.parents[1]), p2: oname(o.parents[2]) };
+  if (o.elType === 'polygon')
+    return { type: 'polygon', id: nm,
+             points: (o.vertices || []).map(function (v) { return v.name; }) };
+  return null;
+}
+
+function isDrivenPoint(o) {
+  if (!o || o.elementClass !== JXG.OBJECT_CLASS_POINT) return false;
+  if (o.elType === 'intersection') return true;
+  var dk = o._defKind;
+  /* 还有灵活度、未被完全确定的点不置灰：glider 可沿曲线滑动，
+   * 不等长平行线段的远端（_free）可沿方向拉动 */
+  if (dk === 'glider') return false;
+  if (dk === 'parend' && o._free) return false;
+  return dk === 'midpoint' || dk === 'footpoint' || dk === 'tricenter' ||
+         dk === 'mirrorpt' || dk === 'parend' || dk === 'pfoot';
+}
+
+</script>
+</body></html>

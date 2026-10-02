@@ -1,7 +1,48 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { loadGgbScript } from '../lib/ggb-script';
+import { loadGgbScript, useLocalGgbCodebase } from '../lib/ggb-script';
 import { listProblemVersions, getProblemVersion, saveProblemVersion, deleteProblemVersion } from '../services/api';
+
+// JSXGraph 只读渲染：iframe 嵌入 /jxg/index.html，发送 jxg:init 渲染步骤
+function JxgStage({ steps }) {
+  const ref = useRef(null);
+  const readyRef = useRef(false);
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+  useEffect(() => {
+    const onMessage = (ev) => {
+      const d = ev.data || {};
+      if (d.type === 'jxg:ready') {
+        readyRef.current = true;
+        try {
+          ref.current?.contentWindow?.postMessage(
+            { type: 'jxg:init', steps: stepsRef.current || [], readOnly: true },
+            '*'
+          );
+        } catch { /* iframe 未就绪 */ }
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+  useEffect(() => {
+    if (!readyRef.current) return;
+    try {
+      ref.current?.contentWindow?.postMessage(
+        { type: 'jxg:init', steps: steps || [], readOnly: true },
+        '*'
+      );
+    } catch { /* ignore */ }
+  }, [steps]);
+  return (
+    <iframe
+      ref={ref}
+      src="/jxg/index.html"
+      title="JSXGraph 版本预览"
+      style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+    />
+  );
+}
 
 const formatTime = (ts) => {
   const d = new Date(ts);
@@ -30,6 +71,7 @@ export default function VersionManager() {
   const apiRef = useRef(null);
   const emptyXmlRef = useRef('');
   const didInitRef = useRef(false);
+  const selectedVersionStepsRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState('GeoGebra 加载中…');
   const [versions, setVersions] = useState([]);
@@ -37,8 +79,19 @@ export default function VersionManager() {
   const [selectedKey, setSelectedKey] = useState('current');
   const [manageMode, setManageMode] = useState(false);
   const { activeProblem, updateProblem, setLog } = useApp();
+  const isJxg = activeProblem?.engine === 'jxg';
+  const isJxgRef = useRef(isJxg);
+  isJxgRef.current = isJxg;
+  // jxg 引擎：右侧渲染的步骤（当前版 = 题目 jxgSteps；历史版 = 快照信封内的 steps）
+  const [stageSteps, setStageSteps] = useState([]);
+
+  // jxg 引擎不加载 GeoGebra，状态提示换文案
+  useEffect(() => {
+    if (activeProblem && isJxg) setStatus('JSXGraph 就绪');
+  }, [activeProblem, isJxg]);
 
   useEffect(() => {
+    if (isJxgRef.current) return undefined;
     let cancelled = false;
     loadGgbScript()
       .then(() => {
@@ -68,6 +121,7 @@ export default function VersionManager() {
           },
         };
         const applet = new window.GGBApplet(params, true);
+        useLocalGgbCodebase(applet);
         applet.inject(containerRef.current.id);
         containerRef.current.dataset.loaded = 'true';
       })
@@ -75,7 +129,7 @@ export default function VersionManager() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeProblem?.engine]);
 
   // 窗口尺寸变化时同步画布大小
   useEffect(() => {
@@ -147,15 +201,31 @@ export default function VersionManager() {
   // 选中"当前版"：加载题目的最新图形（ggbState）
   const selectCurrent = () => {
     setSelectedKey('current');
+    selectedVersionStepsRef.current = null;
+    if (isJxg) {
+      setStageSteps(activeProblem?.jxgSteps || []);
+      return;
+    }
     loadXmlIntoCanvas(activeProblem?.ggbState || '');
   };
 
   const selectVersion = async (v) => {
     setSelectedKey(v.id);
-    const api = apiRef.current;
-    if (!api || !activeProblem) return;
+    if (!activeProblem) return;
     try {
       const data = await getProblemVersion(activeProblem.id, v.id);
+      if (isJxg) {
+        // 版本内容信封：{"engine":"jxg","steps":[...]}
+        try {
+          const env = JSON.parse(data.ggbState || '{}');
+          selectedVersionStepsRef.current = Array.isArray(env.steps) ? env.steps : [];
+        } catch {
+          selectedVersionStepsRef.current = [];
+        }
+      setStageSteps(selectedVersionStepsRef.current);
+      setStatus('已载入该版本');
+      return;
+      }
       loadXmlIntoCanvas(data.ggbState);
     } catch {
       setStatus('载入版本失败');
@@ -179,6 +249,24 @@ export default function VersionManager() {
   // 把"当前版"（最新图形）保存为一个版本快照
   const saveCurrent = async () => {
     if (!activeProblem) return;
+    if (isJxg) {
+      const envelope = JSON.stringify({ engine: 'jxg', steps: activeProblem.jxgSteps || [] });
+      try {
+        let res = await saveProblemVersion(activeProblem.id, envelope, false);
+        if (res.limited) {
+          const ok = window.confirm(
+            `该题目已有 ${res.count} 个版本（最多保留 ${res.limit} 个）。继续保存将删除最旧的版本，是否继续？`
+          );
+          if (!ok) return;
+          res = await saveProblemVersion(activeProblem.id, envelope, true);
+        }
+        setStatus(`已保存当前版（${formatTime(res.created_at)}）。`);
+        refreshVersions();
+      } catch (e) {
+        window.alert('保存失败：' + (e.message || '未知错误'));
+      }
+      return;
+    }
     const xml = activeProblem.ggbState || '';
     if (!xml.trim()) {
       window.alert('当前还没有可保存的图形。');
@@ -209,6 +297,13 @@ export default function VersionManager() {
     if (!ok) return;
     try {
       const data = await getProblemVersion(activeProblem.id, selectedKey);
+      if (isJxg) {
+        const steps = selectedVersionStepsRef.current || [];
+        updateProblem(activeProblem.id, { jxgSteps: steps });
+        setLog('已将选中的版本设为最新版。');
+        window.location.hash = '#/app';
+        return;
+      }
       updateProblem(activeProblem.id, { ggbState: data.ggbState });
       setLog(`已将 ${formatTime(data.created_at)} 保存的版本设为最新版。`);
       window.location.hash = '#/app';
@@ -310,16 +405,22 @@ export default function VersionManager() {
         </aside>
         <div className="vm-stage">
           <div className="vm-stage-bar">
-            <label className="vm-mode" title="开启后可以拖动图形查看，修改不会保存">
-              <input
-                type="checkbox"
-                checked={manageMode}
-                onChange={(e) => setManageMode(e.target.checked)}
-              />
-              管理模式
-            </label>
+            {!isJxg && (
+              <label className="vm-mode" title="开启后可以拖动图形查看，修改不会保存">
+                <input
+                  type="checkbox"
+                  checked={manageMode}
+                  onChange={(e) => setManageMode(e.target.checked)}
+                />
+                管理模式
+              </label>
+            )}
           </div>
-          <div className="vm-applet" id="ggb-version-stage" ref={containerRef} />
+          {isJxg ? (
+            <JxgStage steps={stageSteps} />
+          ) : (
+            <div className="vm-applet" id="ggb-version-stage" ref={containerRef} />
+          )}
         </div>
       </div>
     </div>
