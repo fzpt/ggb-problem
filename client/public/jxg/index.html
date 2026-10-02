@@ -1021,6 +1021,84 @@ function openPropPanel(o, cx, cy) {
   var p = document.getElementById('proppanel');
   p.style.display = 'block';
 }
+/* 数字格式化：保留两位小数去尾零 */
+function ppNum(x) {
+  var v = Number(x);
+  if (!isFinite(v)) return String(x);
+  v = Math.round(v * 100) / 100;
+  return String(v);
+}
+/* 步骤 → 可读的构造公式（GeoGebra 风格） */
+function stepToFormulaText(s) {
+  if (!s || !s.type) return '';
+  var id = s.id || '';
+  switch (s.type) {
+    case 'point':
+      if (s.on) return id + ' = Point(' + s.on + ')';
+      return id + ' = (' + ppNum(s.coords[0]) + ', ' + ppNum(s.coords[1]) + ')';
+    case 'midpoint': return id + ' = Midpoint(' + s.p1 + ', ' + s.p2 + ')';
+    case 'tricenter':
+      return id + ' = ' + ({ incenter: 'Incenter', circumcenter: 'Circumcenter', orthocenter: 'Orthocenter' }[s.kind] || '三角中心') +
+             '(' + (s.points || []).join(', ') + ')';
+    case 'perpendicular': return id + ' = 垂足(' + s.point + ', ' + s.line + ')';
+    case 'mirrorpt': return id + ' = 镜像(' + s.of + ', ' + s.axis + ')';
+    case 'rotate': return id + ' = 旋转(' + s.of + ', 中心' + s.center + ', ' + ppNum(s.angle) + '°)';
+    case 'dilate': return id + ' = 位似(' + s.of + ', 中心' + s.center + ', 比' + ppNum(s.ratio) + ')';
+    case 'exprpoint': return id + ' = (' + s.x + ', ' + s.y + ')';
+    case 'intersection':
+      if (s.side)
+        return id + ' = 交点(' + s.e1 + ', ' + s.e2 + ')〔' + s.side.point + ' 在 ' + s.side.line +
+               ' 的' + (s.side.rel === 'opposite' ? '异' : '同') + '侧〕';
+      return id + ' = 交点(' + s.e1 + ', ' + s.e2 + (s.index ? ', ' + (s.index + 1) : '') + ')';
+    case 'segment': return id + ' = Segment(' + s.p1 + ', ' + s.p2 + ')';
+    case 'perpseg': return id + ' = 垂线段(' + s.point + ', ' + s.p1 + ', ' + s.p2 + ')';
+    case 'pseg': return id + ' = 平行线段(' + s.point + ', ' + s.ref + ')';
+    case 'psegfree': return id + ' = 平行线段(' + s.point + ', ' + s.ref + ', 长' + s.len + ')';
+    case 'line': return id + ' = Line(' + s.p1 + ', ' + s.p2 + ')';
+    case 'ray': return id + ' = Ray(' + s.p1 + ', ' + s.p2 + ')';
+    case 'pline': return id + ' = 平行线(' + s.point + ', ' + s.ref + ')';
+    case 'pray': return id + ' = 平行射线(' + s.point + ', ' + s.ref + ')';
+    case 'bisector': return id + ' = 角平分线(' + s.vertex + ', ' + s.p1 + ', ' + s.p2 + ')';
+    case 'circle':
+      if (s.through3) return id + ' = Circle(' + s.through3.join(', ') + ')';
+      if (s.radius !== undefined) return id + ' = Circle(' + s.center + ', r = ' + ppNum(s.radius) + ')';
+      return id + ' = Circle(' + s.center + ', ' + s.through + ')';
+    case 'arc': return id + ' = Arc(' + s.center + ', ' + s.p1 + ', ' + s.p2 + ')';
+    case 'arc3': return id + ' = 三点圆弧(' + s.through3.join(', ') + ')';
+    case 'polygon': return id + ' = Polygon(' + (s.points || []).join(', ') + ')';
+  }
+  return '';
+}
+/* 线/圆的解析方程（当前数值） */
+function equationTextOf(o) {
+  try {
+    function ptOf(p) {
+      var q = board.objects[(p && p.id) ? p.id : p];
+      return (q && q.elType === 'point') ? q : null;
+    }
+    if (o.elType === 'line' || o.elType === 'segment') {
+      var pr = o.parents || [];
+      var p1 = ptOf(pr[0]), p2 = ptOf(pr[1]);
+      if (!p1 || !p2) return '';
+      var dx = p2.X() - p1.X(), dy = p2.Y() - p1.Y();
+      if (Math.abs(dx) < 1e-9) return 'x = ' + ppNum(p1.X());
+      var k = dy / dx, b = p1.Y() - k * p1.X();
+      var kPart = (Number(ppNum(k)) === 1) ? '' : (Number(ppNum(k)) === -1 ? '-' : ppNum(k));
+      var bN = Number(ppNum(b));
+      if (bN === 0) return 'y = ' + kPart + 'x';
+      return 'y = ' + kPart + 'x' + (bN > 0 ? ' + ' + ppNum(bN) : ' − ' + ppNum(Math.abs(bN)));
+    }
+    if (o.elType === 'circle' || o.elType === 'circumcircle') {
+      var c = ptOf((o.parents || [])[0]);
+      if (!c) return '';
+      var r = (typeof o.Radius === 'function') ? o.Radius() : NaN;
+      if (!isFinite(r)) return '';
+      function mt(x) { var v = Number(ppNum(x)); return v < 0 ? ' + ' + ppNum(Math.abs(v)) : ' − ' + ppNum(v); }
+      return '(x' + mt(c.X()) + ')² + (y' + mt(c.Y()) + ')² = ' + ppNum(r * r);
+    }
+  } catch (e) {}
+  return '';
+}
 function renderPropPanel() {
   var o = propTarget;
   if (!o || !board.objects[o.id]) { closePropPanel(); return; }
@@ -1043,6 +1121,28 @@ function renderPropPanel() {
     return '<div class="prow"><span>' + label + '</span><span class="ctl">' +
            '<input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '">' +
            '<span class="pval" id="' + valId + '">' + val + (suffix || '') + '</span></span></div>';
+  }
+  /* 名称（可改，自动重写全部引用） */
+  h += '<div class="prow"><span>名称</span><span class="ctl">' +
+       '<input type="text" id="ppName" value="' + escAttr(o.name || '') + '" ' +
+       'style="width:104px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
+       '<button id="ppNameOk" title="确定改名" ' +
+       'style="font-size:12px;padding:3px 8px;border:1px solid #d0d7de;border-radius:4px;background:#f6f8fa;cursor:pointer;">✓</button>' +
+       '</span></div>';
+  /* 定义 / 公式 */
+  var ftxt = '';
+  try { ftxt = stepToFormulaText(objectToStepRaw(o)); } catch (e) {}
+  if (ftxt) {
+    h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
+         '<span class="ctl" id="ppDef" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
+         escHtml(ftxt) + '</span></div>';
+  }
+  /* 方程（直线/圆） */
+  var eqt = equationTextOf(o);
+  if (eqt) {
+    h += '<div class="prow" style="align-items:flex-start;"><span>方程</span>' +
+         '<span class="ctl" id="ppEq" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
+         escHtml(eqt) + '</span></div>';
   }
   var curColor = normColor(v.strokecolor) || '#000000';
   if (isPt) {
@@ -1114,8 +1214,57 @@ function renderPropPanel() {
     elm.addEventListener('input', function () { markHist(); readAndApply(); });
     elm.addEventListener('change', function () { markHist(); readAndApply(); });
   });
+  /* 名称改名：回车或 ✓ 应用；成功后面板重挂到新对象（重建后旧引用失效） */
+  var ppName = document.getElementById('ppName');
+  var ppNameOk = document.getElementById('ppNameOk');
+  function applyName() {
+    if (!propTarget) return;
+    var nn = ppName.value.trim();
+    var err = renameObjectTo(propTarget, nn);
+    if (err) { setStatus(err, false); return; }
+    try { refreshObjectList(); } catch (e) {}
+    var nb = null;
+    if (nn) {
+      for (var fid in board.objects) {
+        if (board.objects[fid].name === nn) { nb = board.objects[fid]; break; }
+      }
+    }
+    if (nb) { propTarget = nb; renderPropPanel(); }
+    else closePropPanel();
+  }
+  if (ppNameOk) ppNameOk.addEventListener('click', function (ev) { ev.stopPropagation(); applyName(); });
+  if (ppName) {
+    ppName.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') applyName();
+    });
+    ppName.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  }
 }
 document.getElementById('ppClose').addEventListener('click', closePropPanel);
+/* 面板打开期间：画板更新后 300ms 节流刷新 定义/方程 数值（名称输入中不刷新） */
+var lastPropRefresh = 0;
+function refreshPropDynamic() {
+  var p = document.getElementById('proppanel');
+  if (!p || p.style.display === 'none') return;
+  if (!propTarget || !board.objects[propTarget.id]) return;
+  var ae = document.activeElement;
+  if (ae && ae.id === 'ppName') return;
+  var d = document.getElementById('ppDef');
+  if (d) {
+    var ftxt = '';
+    try { ftxt = stepToFormulaText(objectToStepRaw(propTarget)); } catch (e) {}
+    d.textContent = ftxt;
+  }
+  var q = document.getElementById('ppEq');
+  if (q) q.textContent = equationTextOf(propTarget);
+}
+board.on('update', function () {
+  var now = Date.now();
+  if (now - lastPropRefresh < 300) return;
+  lastPropRefresh = now;
+  try { refreshPropDynamic(); } catch (e) {}
+});
 document.getElementById('ppReset').addEventListener('click', function () {
   var o = propTarget;
   if (!o || !board.objects[o.id]) { closePropPanel(); return; }
@@ -3273,6 +3422,39 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/'/g, '&#39;')
                   .replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+/* 改名并重写所有步骤中的引用；返回 null 表示成功（含未变化），否则返回错误信息。
+ * 对象列表双击改名与属性面板共用。 */
+function renameObjectTo(o, nn) {
+  var id = o.id;
+  var idx = createdIds.indexOf(id);
+  if (idx < 0) return '该对象不支持改名。';
+  var prev = snapshotState();
+  var oldStep = prev.steps[idx];
+  if (!oldStep) return '该对象不支持改名。';
+  var oldName = oldStep.id || o.name || '';
+  if (!nn) return '名称不能为空。';
+  if (/\s/.test(nn)) return '名称不能包含空格。';
+  if (nn === oldName) return null;
+  var clash = prev.steps.some(function (s, j) { return j !== idx && s.id === nn; });
+  if (clash) return '名称 "' + nn + '" 已被使用。';
+  var steps = prev.steps.map(function (s, j) {
+    if (j === idx) { var c = {}; for (var k in s) c[k] = s[k]; c.id = nn; return c; }
+    return renameRefsInStep(s, oldName, nn);
+  });
+  var prevKey = _lastHistKey;
+  pushHistory();          // 先记快照，改名也支持撤销
+  try {
+    restoreState({ steps: steps, autoN: prev.autoN });
+    setStatus('已改名为 "' + nn + '"。', true);
+    return null;
+  } catch (err) {
+    undoStack.pop();      // 回滚这次历史记录
+    _lastHistKey = prevKey;
+    updateUndoButtons();
+    restoreState(prev);
+    return '改名失败：' + err.message;
+  }
+}
 function startRename(id, row) {
   var o = board.objects[id];
   if (!o) return;
@@ -3294,26 +3476,10 @@ function startRename(id, row) {
     if (!nn) { setStatus('名称不能为空。', false); return; }
     if (/\s/.test(nn)) { setStatus('名称不能包含空格。', false); return; }
     if (nn === oldName) { cancel(); return; }
-    var clash = prev.steps.some(function (s, j) { return j !== idx && s.id === nn; });
-    if (clash) { setStatus('名称 "' + nn + '" 已被使用。', false); return; }
-    /* 改名并重写其他步骤中的引用 */
-    var steps = prev.steps.map(function (s, j) {
-      if (j === idx) { var c = {}; for (var k in s) c[k] = s[k]; c.id = nn; return c; }
-      return renameRefsInStep(s, oldName, nn);
-    });
-    var prevKey = _lastHistKey;
-    pushHistory();          // 先记快照，改名也支持撤销
+    var err = renameObjectTo(o, nn);
     editingId = null;
-    try {
-      restoreState({ steps: steps, autoN: prev.autoN });
-      setStatus('已改名为 "' + nn + '"。', true);
-    } catch (err) {
-      undoStack.pop();      // 回滚这次历史记录
-      _lastHistKey = prevKey;
-      updateUndoButtons();
-      restoreState(prev);
-      setStatus('改名失败：' + err.message, false);
-    }
+    if (err) setStatus(err, false);
+    refreshObjectList();
   }
   okBtn.addEventListener('click', function (ev) { ev.stopPropagation(); apply(); });
   cancelBtn.addEventListener('click', function (ev) { ev.stopPropagation(); cancel(); });
