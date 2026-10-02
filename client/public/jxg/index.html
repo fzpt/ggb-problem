@@ -935,9 +935,9 @@ function toggleGeomMenu() {
   if (m.style.display === 'block') { hideGeomMenu(); return; }
   hideCtxMenu();
   var alive = selectedObjs.filter(function (o) { return board.objects[o.id]; });
-  var single = alive.length === 1 ? alive[0] : null;
-  var h = '<button data-act="props"' + (single ? '' : ' disabled') + '><span>属性…</span><span></span></button>';
-  if (!single) h += '<div class="ghint">先在画板中选中一个对象</div>';
+  var h = '<button data-act="props"' + (alive.length ? '' : ' disabled') + '><span>属性…</span><span></span></button>';
+  if (alive.length > 1) h += '<div class="ghint">已选 ' + alive.length + ' 个对象：显示共同样式属性</div>';
+  else if (!alive.length) h += '<div class="ghint">先在画板中选中一个对象</div>';
   m.innerHTML = h;
   m.style.display = 'block';
   var btn = document.getElementById('btnGMenu');
@@ -947,9 +947,9 @@ function toggleGeomMenu() {
   m.style.left = Math.max(4, Math.min(br.left, window.innerWidth - r.width - 8)) + 'px';
   m.style.top = Math.max(4, Math.min(br.bottom + 4, window.innerHeight - r.height - 8)) + 'px';
   var pb = m.querySelector('button[data-act="props"]');
-  if (pb && single) pb.addEventListener('click', function () {
+  if (pb && alive.length) pb.addEventListener('click', function () {
     hideGeomMenu();
-    openPropPanel(single, br.left, br.bottom + 8);
+    openPropPanel(alive.length === 1 ? alive[0] : alive, br.left, br.bottom + 8);
   });
 }
 function showCtxMenu(cx, cy, o) {
@@ -1000,17 +1000,25 @@ function showCtxMenu(cx, cy, o) {
         hideCtxMenu();
       } else if (act === 'props') {
         hideCtxMenu();
-        openPropPanel(o, cx, cy);
+        /* 右键的对象在多选集合内：显示共同样式属性 */
+        var sel = selectedObjs.filter(function (a) { return board.objects[a.id]; });
+        openPropPanel(sel.length > 1 && isSelected(o) ? sel : o, cx, cy);
       }
     });
   });
 }
 
 /* ============================================================
- * 单对象属性面板
+ * 对象属性面板（支持多选：仅显示共同样式属性）
  * ============================================================ */
-var propTarget = null;
+var propTarget = null;        // 单对象或对象数组（多选：不显示名称/定义等不可一致的内容）
 var propHistPushed = false;
+var touchedFields = {};       // 本次打开中用户实际改过的字段；多选时未触碰的字段不应用，保持各对象原值
+function propTargetList() {
+  if (!propTarget) return [];
+  var arr = Array.isArray(propTarget) ? propTarget : [propTarget];
+  return arr.filter(function (o) { return o && board.objects[o.id]; });
+}
 var DASH_NAMES = ['实线', '点线 ·····', '虚线 - - -', '长虚线 ——', '超长虚线', '点划线 -·-·', '双点划线 -··-··'];
 var FONT_NAMES = [['', '默认'], ['sans-serif', '非衬线'], ['serif', '衬线'], ['monospace', '等宽']];
 function closePropPanel() {
@@ -1018,9 +1026,13 @@ function closePropPanel() {
   if (p) p.style.display = 'none';
   propTarget = null;
 }
-function openPropPanel(o, cx, cy) {
-  propTarget = o;
+function openPropPanel(target, cx, cy) {
+  var list = Array.isArray(target) ? target.slice() : (target ? [target] : []);
+  list = list.filter(function (o) { return o && board.objects[o.id]; });
+  if (!list.length) return;
+  propTarget = list.length === 1 ? list[0] : list;
   propHistPushed = false;
+  touchedFields = {};
   renderPropPanel();
   var p = document.getElementById('proppanel');
   p.style.display = 'block';
@@ -1104,30 +1116,81 @@ function equationTextOf(o) {
   return '';
 }
 function renderPropPanel() {
-  var o = propTarget;
-  if (!o || !board.objects[o.id]) { closePropPanel(); return; }
+  var list = propTargetList();
+  if (!list.length) { closePropPanel(); return; }
+  var multi = list.length > 1;
+  var o = list[0];
   var v = o.visProp || {};
   var isPt = o.elementClass === JXG.OBJECT_CLASS_POINT;
   var isClosed = (o.elType === 'circle' || o.elType === 'polygon' || o.elType === 'circumcircle');
-  document.getElementById('ppTitle').textContent = '属性：' + (o.name || o.elType);
+  var isPtEl = function (x) { return x.elementClass === JXG.OBJECT_CLASS_POINT; };
+  var isClsEl = function (x) { return x.elType === 'circle' || x.elType === 'polygon' || x.elType === 'circumcircle'; };
+  var allLine = list.every(function (x) { return !isPtEl(x); });
+  var allClosed = list.every(isClsEl);
+  document.getElementById('ppTitle').textContent = multi
+    ? '属性：已选 ' + list.length + ' 个对象'
+    : '属性：' + (o.name || o.elType);
   var h = '';
-  function colorRow(label, id, val) {
-    return '<div class="prow"><span>' + label + '</span><span class="ctl">' +
-           '<input type="color" id="' + id + '" value="' + escAttr(val || '#000000') + '"></span></div>';
+  /* 多选取值：全部一致取该值；存在差异返回 mixed（界面对应项标注“多值”等待用户选择） */
+  function eachVal(getter) {
+    var vals = list.map(getter);
+    var same = vals.every(function (x) { return x === vals[0]; });
+    return { val: vals[0], mixed: !same };
   }
-  function dashRow(id, val) {
-    var opts = DASH_NAMES.map(function (n, i) {
-      return '<option value="' + i + '"' + (i === val ? ' selected' : '') + '>' + n + '</option>';
+  /* 选中高亮（红色）会覆盖 visProp 样式：处于高亮态时读 highlightOn 保存的 _selBackup 原值 */
+  function rawVis(x) { return (x && x._selBackup) ? x._selBackup : null; }
+  function colorOf(x) {
+    var b = rawVis(x);
+    var c = b ? b.strokeColor : x.visProp.strokecolor;
+    return normColor(c) || '#000000';
+  }
+  function dashOf(x) { return x.visProp.dash || 0; }
+  function widthOf(x) {
+    var b = rawVis(x);
+    if (b && b.strokeWidth !== undefined && b.strokeWidth !== null) return b.strokeWidth;
+    return x.visProp.strokewidth || 2;
+  }
+  function fillOf(x) {
+    var b = rawVis(x);
+    var fc = normColor(b ? b.fillColor : x.visProp.fillcolor);
+    return (fc && fc !== 'none') ? fc : '';
+  }
+  function fillOpOf(x) { return Math.round(Number(x.visProp.fillopacity || 0) * 100); }
+  function fontSizeOf(x) {
+    try {
+      if (x.label && x.label.rendNode && x.label.rendNode.style) {
+        var pf = parseInt(x.label.rendNode.style.fontSize || '', 10);
+        if (isFinite(pf)) return pf;
+      }
+    } catch (e) {}
+    return 12;
+  }
+  function fontFamOf(x) {
+    try {
+      if (x.label && x.label.rendNode && x.label.rendNode.style) {
+        return x.label.rendNode.style.fontFamily || '';
+      }
+    } catch (e) {}
+    return '';
+  }
+  function colorRow(label, id, val, mixed) {
+    return '<div class="prow"><span>' + label + '</span><span class="ctl">' +
+           '<input type="color" id="' + id + '" value="' + escAttr(val || '#000000') + '">' +
+           (mixed ? '<span class="pval">多值</span>' : '') + '</span></div>';
+  }
+  function dashRow(id, val, mixed) {
+    var opts = (mixed ? '<option value="">（多值）</option>' : '') + DASH_NAMES.map(function (n, i) {
+      return '<option value="' + i + '"' + (!mixed && i === val ? ' selected' : '') + '>' + n + '</option>';
     }).join('');
     return '<div class="prow"><span>线型</span><span class="ctl"><select id="' + id + '">' + opts + '</select></span></div>';
   }
-  function rangeRow(label, id, valId, val, min, max, step, suffix) {
+  function rangeRow(label, id, valId, val, min, max, step, suffix, mixed) {
     return '<div class="prow"><span>' + label + '</span><span class="ctl">' +
            '<input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '">' +
-           '<span class="pval" id="' + valId + '">' + val + (suffix || '') + '</span></span></div>';
+           '<span class="pval" id="' + valId + '">' + (mixed ? '多值' : val + (suffix || '')) + '</span></span></div>';
   }
-  /* 名称（可改，自动重写全部引用） */
-  h += '<div class="prow"><span>名称</span><span class="ctl">' +
+  /* 名称（可改，自动重写全部引用）—— 仅单对象，多选时不显示 */
+  if (!multi) h += '<div class="prow"><span>名称</span><span class="ctl">' +
        '<input type="text" id="ppName" value="' + escAttr(o.name || '') + '" ' +
        'style="width:104px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
        '<button id="ppNameOk" title="确定改名" ' +
@@ -1136,47 +1199,46 @@ function renderPropPanel() {
   /* 定义 / 公式 */
   var ftxt = '';
   try { ftxt = stepToFormulaText(objectToStepRaw(o)); } catch (e) {}
-  if (ftxt) {
+  if (!multi && ftxt) {
     h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
          '<span class="ctl" id="ppDef" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
          escHtml(ftxt) + '</span></div>';
   }
   /* 方程（直线/圆） */
   var eqt = equationTextOf(o);
-  if (eqt) {
+  if (!multi && eqt) {
     h += '<div class="prow" style="align-items:flex-start;"><span>方程</span>' +
          '<span class="ctl" id="ppEq" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
          escHtml(eqt) + '</span></div>';
   }
-  var curColor = normColor(v.strokecolor) || '#000000';
-  if (isPt) {
-    h += colorRow('颜色', 'ppColor', curColor);
-  } else {
-    h += colorRow(isClosed || o.elType === 'polygon' ? '边框颜色' : '颜色', 'ppColor', curColor);
-    h += dashRow('ppDash', v.dash || 0);
-    h += rangeRow('线宽', 'ppWidth', 'ppWidthV', v.strokewidth || 2, 1, 8, 1, '');
+  /* 共同样式属性：颜色所有对象都有；线型/线宽仅全部为非点对象时显示；
+   * 填充仅全部为封闭图形时显示；值不一致的项标注“多值”，用户改动后统一应用到全部对象 */
+  var colM = multi ? eachVal(colorOf) : { val: colorOf(o), mixed: false };
+  var colorLabel = multi ? (allClosed ? '边框颜色' : '颜色')
+                         : (isClosed || o.elType === 'polygon' ? '边框颜色' : '颜色');
+  h += colorRow(colorLabel, 'ppColor', colM.val, colM.mixed);
+  if (multi ? allLine : !isPt) {
+    var dM = multi ? eachVal(dashOf) : { val: dashOf(o), mixed: false };
+    h += dashRow('ppDash', dM.val, dM.mixed);
+    var wM = multi ? eachVal(widthOf) : { val: widthOf(o), mixed: false };
+    h += rangeRow('线宽', 'ppWidth', 'ppWidthV', wM.val, 1, 8, 1, '', wM.mixed);
   }
-  if (isClosed) {
-    var fc = normColor(v.fillcolor);
-    h += colorRow('填充色', 'ppFill', (fc && fc !== 'none') ? fc : '#f0e442');
-    h += rangeRow('填充不透明度', 'ppFillOp', 'ppFillOpV', Math.round(Number(v.fillopacity || 0) * 100), 0, 100, 5, '%');
+  if (multi ? allClosed : isClosed) {
+    var fM = multi ? eachVal(fillOf) : { val: fillOf(o), mixed: false };
+    h += colorRow('填充色', 'ppFill', fM.val || '#f0e442', fM.mixed);
+    var foM = multi ? eachVal(fillOpOf) : { val: fillOpOf(o), mixed: false };
+    h += rangeRow('填充不透明度', 'ppFillOp', 'ppFillOpV', foM.val, 0, 100, 5, '%', foM.mixed);
   }
   /* 标签字体 */
-  var fs = 12, ff = '';
-  try {
-    if (o.label && o.label.rendNode && o.label.rendNode.style) {
-      var pf = parseInt(o.label.rendNode.style.fontSize || '', 10);
-      if (isFinite(pf)) fs = pf;
-      ff = o.label.rendNode.style.fontFamily || '';
-    }
-  } catch (e) {}
-  h += rangeRow('标签字号', 'ppFontSize', 'ppFontSizeV', fs, 10, 32, 1, '');
-  var fopts = FONT_NAMES.map(function (f) {
-    return '<option value="' + escAttr(f[0]) + '"' + (f[0] === ff ? ' selected' : '') + '>' + f[1] + '</option>';
+  var fsM = multi ? eachVal(fontSizeOf) : { val: fontSizeOf(o), mixed: false };
+  h += rangeRow('标签字号', 'ppFontSize', 'ppFontSizeV', fsM.val, 10, 32, 1, '', fsM.mixed);
+  var ffM = multi ? eachVal(fontFamOf) : { val: fontFamOf(o), mixed: false };
+  var fopts = (ffM.mixed ? '<option value="">（多值）</option>' : '') + FONT_NAMES.map(function (f) {
+    return '<option value="' + escAttr(f[0]) + '"' + (!ffM.mixed && f[0] === ffM.val ? ' selected' : '') + '>' + f[1] + '</option>';
   }).join('');
   h += '<div class="prow"><span>标签字体</span><span class="ctl"><select id="ppFont">' + fopts + '</select></span></div>';
   /* 主动点活动周期 */
-  if (o._defKind === 'glider') {
+  if (!multi && o._defKind === 'glider') {
     var per = (typeof o._period === 'number' && o._period > 0) ? o._period : TRACE_DEFAULT_PERIOD;
     h += '<div class="prow"><span>活动周期（秒）</span><span class="ctl">' +
          '<input type="number" id="ppPeriod" min="0.5" max="120" step="0.5" value="' + per + '"></span></div>';
@@ -1185,38 +1247,43 @@ function renderPropPanel() {
   /* 接线：input 实时预览，change/首次 input 时记一次历史（一次打开记一次撤销） */
   function markHist() { if (!propHistPushed) { pushHistory(); propHistPushed = true; } }
   function readAndApply() {
+    function took(id) { return !!touchedFields[id]; }
     var st = {};
     var c = document.getElementById('ppColor');
-    if (c) st.c = c.value;
+    if (c && took('ppColor')) st.c = c.value;
     var d = document.getElementById('ppDash');
-    if (d) st.d = parseInt(d.value, 10);
+    if (d && took('ppDash')) st.d = parseInt(d.value, 10);
     var w = document.getElementById('ppWidth');
-    if (w) { st.w = parseInt(w.value, 10); document.getElementById('ppWidthV').textContent = w.value; }
+    if (w && took('ppWidth')) { st.w = parseInt(w.value, 10); document.getElementById('ppWidthV').textContent = w.value; }
     var fc2 = document.getElementById('ppFill');
-    if (fc2) st.fc = fc2.value;
+    if (fc2 && took('ppFill')) st.fc = fc2.value;
     var fo2 = document.getElementById('ppFillOp');
-    if (fo2) { st.fo = parseInt(fo2.value, 10) / 100; document.getElementById('ppFillOpV').textContent = fo2.value + '%'; }
+    if (fo2 && took('ppFillOp')) { st.fo = parseInt(fo2.value, 10) / 100; document.getElementById('ppFillOpV').textContent = fo2.value + '%'; }
     var fz = document.getElementById('ppFontSize');
-    if (fz) { st.fs = parseInt(fz.value, 10); document.getElementById('ppFontSizeV').textContent = fz.value; }
+    if (fz && took('ppFontSize')) { st.fs = parseInt(fz.value, 10); document.getElementById('ppFontSizeV').textContent = fz.value; }
     var ff2 = document.getElementById('ppFont');
-    if (ff2) st.ff = ff2.value;
-    /* 若对象正被选中：先卸下红色高亮再改样式，避免取消选中时把新样式还原 */
-    var wasSel = propTarget && isSelected(propTarget);
-    if (wasSel) highlightOff(propTarget);
-    applyStyle(propTarget, st);
-    if (wasSel) highlightOn(propTarget);
+    if (ff2 && took('ppFont')) st.ff = ff2.value;
     var pp = document.getElementById('ppPeriod');
-    if (pp && propTarget) {
+    if (pp && took('ppPeriod') && propTarget && !Array.isArray(propTarget)) {
       var pv = parseFloat(pp.value);
       if (isFinite(pv) && pv >= 0.5 && pv <= 120) propTarget._period = pv;
     }
+    if (!Object.keys(st).length) return;
+    /* 若对象正被选中：先卸下红色高亮再改样式，避免取消选中时把新样式还原 */
+    var list = propTargetList();
+    list.forEach(function (tg) {
+      var wasSel = isSelected(tg);
+      if (wasSel) highlightOff(tg);
+      applyStyle(tg, st);
+      if (wasSel) highlightOn(tg);
+    });
     board.update();
   }
   ['ppColor', 'ppDash', 'ppWidth', 'ppFill', 'ppFillOp', 'ppFontSize', 'ppFont', 'ppPeriod'].forEach(function (id) {
     var elm = document.getElementById(id);
     if (!elm) return;
-    elm.addEventListener('input', function () { markHist(); readAndApply(); });
-    elm.addEventListener('change', function () { markHist(); readAndApply(); });
+    elm.addEventListener('input', function () { touchedFields[id] = true; markHist(); readAndApply(); });
+    elm.addEventListener('change', function () { touchedFields[id] = true; markHist(); readAndApply(); });
   });
   /* 名称改名：回车或 ✓ 应用；成功后面板重挂到新对象（重建后旧引用失效） */
   var ppName = document.getElementById('ppName');
@@ -1251,6 +1318,7 @@ var lastPropRefresh = 0;
 function refreshPropDynamic() {
   var p = document.getElementById('proppanel');
   if (!p || p.style.display === 'none') return;
+  if (Array.isArray(propTarget)) return;   // 多选无定义/方程行，无需刷新
   if (!propTarget || !board.objects[propTarget.id]) return;
   var ae = document.activeElement;
   if (ae && ae.id === 'ppName') return;
@@ -1270,22 +1338,24 @@ board.on('update', function () {
   try { refreshPropDynamic(); } catch (e) {}
 });
 document.getElementById('ppReset').addEventListener('click', function () {
-  var o = propTarget;
-  if (!o || !board.objects[o.id]) { closePropPanel(); return; }
+  var list = propTargetList();
+  if (!list.length) { closePropPanel(); return; }
   pushHistory();
-  var isPt = o.elementClass === JXG.OBJECT_CLASS_POINT;
-  var isClosed = (o.elType === 'circle' || o.elType === 'polygon' || o.elType === 'circumcircle');
-  var st = {};
-  if (isPt) st.c = globalStyle.pointColor;
-  else { st.c = globalStyle.strokeColor; st.w = globalStyle.strokeWidth; st.d = globalStyle.dash; }
-  if (isClosed) { st.fc = globalStyle.fillColor; st.fo = globalStyle.fillOpacity; }
-  st.fs = globalStyle.fontSize;
-  st.ff = globalStyle.fontFamily || '';
-  var wasSel2 = isSelected(o);
-  if (wasSel2) highlightOff(o);
-  applyStyle(o, st);
-  if (wasSel2) highlightOn(o);
-  if (o._defKind === 'glider') delete o._period;
+  list.forEach(function (o) {
+    var isPt = o.elementClass === JXG.OBJECT_CLASS_POINT;
+    var isClosed = (o.elType === 'circle' || o.elType === 'polygon' || o.elType === 'circumcircle');
+    var st = {};
+    if (isPt) st.c = globalStyle.pointColor;
+    else { st.c = globalStyle.strokeColor; st.w = globalStyle.strokeWidth; st.d = globalStyle.dash; }
+    if (isClosed) { st.fc = globalStyle.fillColor; st.fo = globalStyle.fillOpacity; }
+    st.fs = globalStyle.fontSize;
+    st.ff = globalStyle.fontFamily || '';
+    var wasSel2 = isSelected(o);
+    if (wasSel2) highlightOff(o);
+    applyStyle(o, st);
+    if (wasSel2) highlightOn(o);
+    if (o._defKind === 'glider') delete o._period;
+  });
   board.update();
   renderPropPanel();
   setStatus('已恢复为当前全局样式。', true);
@@ -1345,7 +1415,6 @@ document.addEventListener('mousedown', function (e) {
 document.addEventListener('mousedown', function (e) {
   var p = document.getElementById('proppanel');
   if (!p || p.style.display !== 'block') return;
-  try { window.__ppDbg = { t: e.target && (e.target.id || e.target.tagName), inBox: !!(e.target && e.target.closest && e.target.closest('#jxgbox')) }; } catch (e0) {}
   if (p.contains(e.target)) return;
   var m = document.getElementById('ctxmenu');
   if (m && m.contains(e.target)) return;
@@ -1358,13 +1427,18 @@ document.addEventListener('mousedown', function (e) {
       var uc = getUsrCoords(e);
       var hit1 = findPointNear(sx1, sy1) || findObjectAt(sx1, sy1, uc.usrCoords[1], uc.usrCoords[2]);
       if (hit1 && hit1._defKind !== 'perpline' && hit1._defKind !== 'sidecand' && board.objects[hit1.id]) {
-        openPropPanel(hit1);
+        var sel1 = selectedObjs.filter(function (a) { return board.objects[a.id]; });
+        openPropPanel(sel1.length > 1 && isSelected(hit1) ? sel1 : hit1);
       }
     } catch (err) {}
   } else {
     var row = e.target.closest('.objrow');
     var rid = row && row.getAttribute('data-id');
-    if (rid && board.objects[rid]) openPropPanel(board.objects[rid]);
+    if (rid && board.objects[rid]) {
+      var ro = board.objects[rid];
+      var sel2 = selectedObjs.filter(function (a) { return board.objects[a.id]; });
+      openPropPanel(sel2.length > 1 && isSelected(ro) ? sel2 : ro);
+    }
   }
 }, true);
 window.addEventListener('resize', function () { hideCtxMenu(); hideGeomMenu(); });
