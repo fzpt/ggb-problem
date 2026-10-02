@@ -1346,7 +1346,39 @@ document.getElementById('jxgbox').addEventListener('wheel', function (e) {
   var bb = board.getBoundingBox();
   board.setBoundingBox([mx + (bb[0] - mx) * z, my + (bb[1] - my) * z,
                         mx + (bb[2] - mx) * z, my + (bb[3] - my) * z], true, 'update');
+  enforceSquareGrid([mx, my]);
 }, { passive: false });
+
+/* 格线必须为正方形（unitX==unitY）。JSXGraph 的 keepaspectratio 缩放只保持
+ * "当前" 比例：一旦 unitX!=unitY，滚轮缩放会把矩形比例永远保留下去。
+ * 这里以锚点（用户坐标，通常为鼠标位置）的屏幕位置不变为前提，
+ * 扩展较短的一边，使单位像素相等。 */
+function enforceSquareGrid(anchor) {
+  try {
+    var cw = board.canvasWidth, ch = board.canvasHeight;
+    if (!cw || !ch) return;
+    var bb = board.getBoundingBox();
+    var x0 = bb[0], y1 = bb[1], x2 = bb[2], y3 = bb[3];
+    var w = x2 - x0, h = y1 - y3;
+    if (!(w > 0) || !(h > 0)) return;
+    var target = cw / ch;                 // 期望的 w/h（单位相等时）
+    if (Math.abs(w / h - target) < 0.001) return;
+    var ax = anchor ? anchor[0] : (x0 + x2) / 2;
+    var ay = anchor ? anchor[1] : (y1 + y3) / 2;
+    var hNeed = w / target, wNeed = h * target;
+    if (hNeed >= h) {
+      var fy = (ay - y3) / h;
+      var ny3 = ay - fy * hNeed, ny1 = ny3 + hNeed;
+      board.setBoundingBox([x0, ny1, x2, ny3], false, 'update');
+    } else {
+      var fx = (ax - x0) / w;
+      var nx0 = ax - fx * wNeed, nx2 = nx0 + wNeed;
+      board.setBoundingBox([nx0, y1, nx2, y3], false, 'update');
+    }
+    /* 精确分支会把 keepaspectratio 置 false，恢复之，后续缩放行为不变 */
+    board.keepaspectratio = true;
+  } catch (e) {}
+}
 
 /* ---------- 画板窗口可拖动调整大小 ---------- */
 (function () {
@@ -4825,6 +4857,7 @@ if (EMBEDDED) {
         try { renderSteps(d.steps); }
         catch (err) { postToParent({ type: 'jxg:status', level: 'error', message: '渲染失败：' + err.message }); }
       }
+      try { enforceSquareGrid(); } catch (e) {}   // 校正历史上已失衡的视图
       /* 注意：这里不能回发 jxg:ready —— 外壳收到 ready 会再发 init，
        * init→ready 无限 ping-pong 会让 renderSteps 反复清空重建（更新风暴、标签乱跳） */
     } else if (d.type === 'jxg:apply-steps') {
