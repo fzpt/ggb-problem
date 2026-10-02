@@ -357,9 +357,9 @@
   #geommenu button:hover { background: #f0f4f8; }
   #geommenu button:disabled { color: #9aa0a6; cursor: default; background: none; }
   #geommenu .ghint { padding: 6px 10px 4px; color: #8a919c; font-size: 12px; }
-  /* 单对象属性面板 */
-  #proppanel { position: fixed; z-index: 190; width: 236px; background: #fff; border: 1px solid #d0d7de;
-    border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); padding: 12px; font-size: 13px; display: none; }
+  /* 单对象属性面板：贴绘图区右侧的一列 */
+  #proppanel { flex: 0 0 240px; width: 240px; background: #fff; border: 1px solid #d0d7de;
+    border-radius: 8px; padding: 12px; font-size: 13px; display: none; overflow-y: auto; }
   #proppanel h3 { margin: 0 0 8px; font-size: 13px; color: #24292f; display: flex; justify-content: space-between; align-items: center; }
   #proppanel h3 .x { border: none; background: none; font-size: 15px; cursor: pointer; color: #57606a; padding: 0 4px; }
   #proppanel .prow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; color: #57606a; }
@@ -389,6 +389,7 @@
   body.jxg-readonly #hint,
   body.jxg-readonly #clearBoard { display: none !important; }
   body.jxg-readonly #objpanel { pointer-events: none; opacity: .85; }
+  body.jxg-readonly #proppanel { display: none !important; }
 </style>
 </head>
 <body>
@@ -539,6 +540,11 @@
           <div id="objlist"><div class="objempty">暂无对象</div></div>
         </aside>
         <div id="boardwrap"><div id="jxgbox2" style="display:none"></div><div id="jxgbox"></div></div>
+        <aside id="proppanel" role="dialog" aria-label="对象属性">
+          <h3><span id="ppTitle">属性</span><button class="x" id="ppClose" title="关闭">×</button></h3>
+          <div id="ppBody"></div>
+          <div class="pfoot"><button id="ppReset">恢复为当前样式</button></div>
+        </aside>
       </div>
       <div id="hint">当前工具：点 — 在画板上点击即可放置一个点。</div>
     </div>
@@ -1014,10 +1020,6 @@ function openPropPanel(o, cx, cy) {
   renderPropPanel();
   var p = document.getElementById('proppanel');
   p.style.display = 'block';
-  p.style.left = '0px'; p.style.top = '0px';
-  var r = p.getBoundingClientRect();
-  p.style.left = Math.max(4, Math.min(cx || 200, window.innerWidth - r.width - 8)) + 'px';
-  p.style.top = Math.max(4, Math.min(cy || 120, window.innerHeight - r.height - 8)) + 'px';
 }
 function renderPropPanel() {
   var o = propTarget;
@@ -1681,13 +1683,38 @@ function definesPoint(o, p) {
   }
   return false;
 }
-/* 曲线是否（直接或间接）依赖该点：直接看 definesPoint；间接走 ancestors；
- * 三点圆弧的中间点只在 _arc3pts 里，ancestors 覆盖不到，需显式检查 */
-function curveDependsOn(cv, pt) {
-  if (!cv || !pt) return false;
-  try { if (cv.ancestors && cv.ancestors[pt.id]) return true; } catch (e) {}
-  if (cv._defKind === 'arc3' && cv._arc3pts && cv._arc3pts.indexOf(pt.id) >= 0) return true;
+/* 对象的直接依赖 id 列表：parents/顶点 + 各构造类型的显式依赖表 +
+ * 函数点（dilate/rotate/exprpoint）的闭包依赖（_depIds） */
+function directDepIds(o) {
+  if (!o) return [];
+  var ids = [], seen = {}, i, par;
+  function push(id) { if (id && typeof id === 'string' && !seen[id]) { seen[id] = 1; ids.push(id); } }
+  if (o.parents) for (i = 0; i < o.parents.length; i++) { par = o.parents[i]; push((par && par.id) ? par.id : par); }
+  if (o.vertices) for (i = 0; i < o.vertices.length; i++) push(o.vertices[i].id);
+  ['_arc3pts', '_tcIds', '_bisIds', '_psegIds', '_mirrorIds', '_parIds', '_perpIds', '_sideIds', '_depIds'].forEach(function (k) {
+    if (o[k]) for (i = 0; i < o[k].length; i++) push(o[k][i]);
+  });
+  if (o._onId) push(o._onId);
+  if (o._polyEdge) push(o._polyEdge.polyId);
+  return ids;
+}
+/* o 是否（直接或间接）依赖 rootId 对应的对象。
+ * 注意不能只看 ancestors：函数点（dilate/rotate/exprpoint/sidepick）靠闭包引用，
+ * 没有 ancestors，必须走显式依赖表，否则拖点松手加约束会造出循环依赖。 */
+function dependsOnId(o, rootId, visited) {
+  if (!o || !rootId) return false;
+  visited = visited || {};
+  if (visited[o.id]) return false;
+  visited[o.id] = true;
+  var ids = directDepIds(o);
+  for (var i = 0; i < ids.length; i++) {
+    if (ids[i] === rootId) return true;
+    if (dependsOnId(board.objects[ids[i]], rootId, visited)) return true;
+  }
   return false;
+}
+function curveDependsOn(cv, pt) {
+  return dependsOnId(cv, pt && pt.id);
 }
 /* 派生点类型：不参与"拖点松手加约束" */
 var DERIVED_POINT_KINDS = { glider: 1, midpoint: 1, footpoint: 1, tricenter: 1, mirrorpt: 1, parend: 1, pfoot: 1 };
@@ -4577,6 +4604,7 @@ function resolveRef(ref, registry, stepIdx) {
           ], { name: id, fixed: true });
           el._defKind = 'rotate';
           applyDrivenGray(el);
+          el._depIds = [ro.id, rc.id];
           el._rotOf = ro.id; el._rotCenter = rc.id; el._rotAngle = Number(s.angle) || 0;
           break;
         }
@@ -4592,6 +4620,7 @@ function resolveRef(ref, registry, stepIdx) {
           ], { name: id, fixed: true });
           el._defKind = 'dilate';
           applyDrivenGray(el);
+          el._depIds = [dO.id, dC.id];
           el._dilOf = dO.id; el._dilCenter = dC.id; el._dilRatio = dR;
           break;
         }
@@ -4602,6 +4631,13 @@ function resolveRef(ref, registry, stepIdx) {
           el = board.create('point', [exFn, eyFn], { name: id, fixed: true });
           el._defKind = 'exprpoint';
           applyDrivenGray(el);
+          /* 从表达式中提取已注册对象 id，作为闭包依赖（防循环约束检测用） */
+          var _exprRefs = [];
+          String(s.x + ' ' + s.y).replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (m) {
+            if (registry[m] && registry[m].id && _exprRefs.indexOf(registry[m].id) < 0) _exprRefs.push(registry[m].id);
+            return m;
+          });
+          el._depIds = _exprRefs;
           el._exprX = s.x; el._exprY = s.y;
           break;
         }
@@ -4757,6 +4793,7 @@ document.querySelectorAll('.chips button').forEach(function (chip) {
 var EMBEDDED = (window.parent !== window);
 var READ_ONLY = false;
 try { window.__jxgRender = renderSteps; window.__jxgBoard = board; } catch (e) {}   // 调试句柄（自动化测试用）
+try { window.__jxgOpenProps = openPropPanel; } catch (e) {}
 
 function postToParent(msg) {
   try { window.parent.postMessage(msg, '*'); } catch (e) {}
@@ -4846,11 +4883,6 @@ updateUndoButtons();
 </script>
 <div id="ctxmenu" role="menu"></div>
 <div id="geommenu" role="menu"></div>
-<div id="proppanel" role="dialog" aria-label="对象属性">
-  <h3><span id="ppTitle">属性</span><button class="x" id="ppClose" title="关闭">×</button></h3>
-  <div id="ppBody"></div>
-  <div class="pfoot"><button id="ppReset">恢复为当前样式</button></div>
-</div>
 <script>
 initApp();
 </script>
