@@ -348,15 +348,8 @@
   #ctxmenu hr { border: none; border-top: 1px solid #e5e8eb; margin: 4px 2px; }
   #ctxmenu .periodrow { display: flex; align-items: center; gap: 6px; padding: 7px 10px; }
   #ctxmenu .periodrow input { width: 56px; font-size: 13px; padding: 3px 6px; border: 1px solid #d0d7de; border-radius: 4px; }
-  /* GeoGebra Geometry 风格的 ⋮ 菜单按钮（工具栏最右端）与其下拉菜单 */
-  #toolbar button.tool.gmenu { margin-left: auto; }
-  #geommenu { position: fixed; z-index: 200; min-width: 168px; background: #fff; border: 1px solid #d0d7de;
-    border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.14); padding: 5px; font-size: 13px; display: none; }
-  #geommenu button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 7px 10px; border: none; background: none; border-radius: 5px; cursor: pointer; font-size: 13px; color: #24292f; text-align: left; }
-  #geommenu button:hover { background: #f0f4f8; }
-  #geommenu button:disabled { color: #9aa0a6; cursor: default; background: none; }
-  #geommenu .ghint { padding: 6px 10px 4px; color: #8a919c; font-size: 12px; }
+  /* 属性面板开关按钮（工具栏最右端，激活/非激活态） */
+  #toolbar button.tool.propsbtn { margin-left: auto; }
   /* 单对象属性面板：贴绘图区右侧的一列 */
   #proppanel { flex: 0 0 240px; width: 240px; background: #fff; border: 1px solid #d0d7de;
     border-radius: 8px; padding: 12px; font-size: 13px; display: none; overflow-y: auto; }
@@ -409,8 +402,12 @@
         <button class="tool" data-action="redo" title="重做（Ctrl+Y）" aria-label="重做" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l6 6-6 6"/><path d="M21 12H10a5 5 0 0 0 0 10h5"/></svg>
         </button>
-        <button class="tool gmenu" id="btnGMenu" data-action="gmenu" title="菜单" aria-label="菜单">
-          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>
+        <button class="tool propsbtn" id="btnProps" data-action="props-toggle" title="属性：显示/隐藏选中对象的属性面板" aria-label="属性面板">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M5 8h14M5 16h14"/>
+            <circle cx="15" cy="8" r="2.6" fill="currentColor" stroke="none"/>
+            <circle cx="9" cy="16" r="2.6" fill="currentColor" stroke="none"/>
+          </svg>
         </button>
         <span class="toolsep"></span>
         <button class="tool" data-mode="select" title="选择：点击图形选中（Shift+点击多选）；在选区内按住拖动可整体移动；拖动选区外空白平移视图" aria-label="选择">
@@ -925,32 +922,23 @@ function hideCtxMenu() {
   var m = document.getElementById('ctxmenu');
   if (m) m.style.display = 'none';
 }
-/* GeoGebra Geometry 风格 ⋮ 菜单：属性窗口入口（选中单个对象时可用） */
-function hideGeomMenu() {
-  var m = document.getElementById('geommenu');
-  if (m) m.style.display = 'none';
+/* 属性面板开关（激活/非激活态按钮）：对已选对象（单个或多个）开/关属性面板 */
+function syncPropsBtn() {
+  var b = document.getElementById('btnProps');
+  if (!b) return;
+  var p = document.getElementById('proppanel');
+  b.classList.toggle('active', !!(p && p.style.display === 'block'));
 }
-function toggleGeomMenu() {
-  var m = document.getElementById('geommenu');
-  if (m.style.display === 'block') { hideGeomMenu(); return; }
+function togglePropPanel() {
+  var p = document.getElementById('proppanel');
+  if (p && p.style.display === 'block') { closePropPanel(); return; }
   hideCtxMenu();
   var alive = selectedObjs.filter(function (o) { return board.objects[o.id]; });
-  var h = '<button data-act="props"' + (alive.length ? '' : ' disabled') + '><span>属性…</span><span></span></button>';
-  if (alive.length > 1) h += '<div class="ghint">已选 ' + alive.length + ' 个对象：显示共同样式属性</div>';
-  else if (!alive.length) h += '<div class="ghint">先在画板中选中一个对象</div>';
-  m.innerHTML = h;
-  m.style.display = 'block';
-  var btn = document.getElementById('btnGMenu');
-  var br = btn ? btn.getBoundingClientRect() : { left: 200, bottom: 60 };
-  m.style.left = '0px'; m.style.top = '0px';
-  var r = m.getBoundingClientRect();
-  m.style.left = Math.max(4, Math.min(br.left, window.innerWidth - r.width - 8)) + 'px';
-  m.style.top = Math.max(4, Math.min(br.bottom + 4, window.innerHeight - r.height - 8)) + 'px';
-  var pb = m.querySelector('button[data-act="props"]');
-  if (pb && alive.length) pb.addEventListener('click', function () {
-    hideGeomMenu();
-    openPropPanel(alive.length === 1 ? alive[0] : alive, br.left, br.bottom + 8);
-  });
+  if (!alive.length) {
+    setStatus('请先在画板中选中一个对象，再打开属性面板。', false);
+    return;
+  }
+  openPropPanel(alive.length === 1 ? alive[0] : alive);
 }
 function showCtxMenu(cx, cy, o) {
   var m = document.getElementById('ctxmenu');
@@ -1025,6 +1013,7 @@ function closePropPanel() {
   var p = document.getElementById('proppanel');
   if (p) p.style.display = 'none';
   propTarget = null;
+  syncPropsBtn();
 }
 function openPropPanel(target, cx, cy) {
   var list = Array.isArray(target) ? target.slice() : (target ? [target] : []);
@@ -1036,6 +1025,7 @@ function openPropPanel(target, cx, cy) {
   renderPropPanel();
   var p = document.getElementById('proppanel');
   p.style.display = 'block';
+  syncPropsBtn();
 }
 /* 数字格式化：保留两位小数去尾零 */
 function ppNum(x) {
@@ -1405,9 +1395,6 @@ document.getElementById('jxgbox').addEventListener('contextmenu', function (e) {
 document.addEventListener('mousedown', function (e) {
   var m = document.getElementById('ctxmenu');
   if (m && m.style.display === 'block' && !m.contains(e.target)) hideCtxMenu();
-  var gm = document.getElementById('geommenu');
-  var gbtn = document.getElementById('btnGMenu');
-  if (gm && gm.style.display === 'block' && !gm.contains(e.target) && !(gbtn && gbtn.contains(e.target))) hideGeomMenu();
 });
 /* 属性面板激活时：点画板上的元素 / 对象列表行 → 切换显示该元素属性；
  * 点空白或其他界面不关闭（只能经 × 按钮 / Esc 关闭）。
@@ -1441,7 +1428,7 @@ document.addEventListener('mousedown', function (e) {
     }
   }
 }, true);
-window.addEventListener('resize', function () { hideCtxMenu(); hideGeomMenu(); });
+window.addEventListener('resize', function () { hideCtxMenu(); });
 
 var mode = 'point';          // 当前工具
 var pendingPts = [];         // 两步工具（线段/直线/圆）暂存的点
@@ -2971,7 +2958,7 @@ document.querySelectorAll('#toolbar button[data-action]').forEach(function (btn)
     var a = btn.getAttribute('data-action');
     if (a === 'undo') doUndo();
     else if (a === 'redo') doRedo();
-    else if (a === 'gmenu') toggleGeomMenu();
+    else if (a === 'props-toggle') togglePropPanel();
     else if (a === 'traceanim') { traceAnim.running ? stopTraceAnimation() : startTraceAnimation(); }
   });
 });
@@ -2980,7 +2967,7 @@ document.addEventListener('keydown', function (e) {
   if (typeof READ_ONLY !== 'undefined' && READ_ONLY) return;   // 只读态禁用快捷键（工具/撤销重做）
   var t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  if (e.key === 'Escape') { closeToolFlyout(); resetParallel(); resetSym(); hideCtxMenu(); hideGeomMenu(); closePropPanel();
+  if (e.key === 'Escape') { closeToolFlyout(); resetParallel(); resetSym(); hideCtxMenu(); closePropPanel();
     if (mode === 'perpseg' && pendingPts.length) { pendingPts = []; pendingReused = false; pendingInter = false;
       clearFlashes(); perpSegHoverKey = null; document.getElementById('hint').textContent = HINTS.perpseg;
       setStatus('已取消垂线段拾取。', true); }
@@ -5228,7 +5215,6 @@ updateUndoButtons();
 
 </script>
 <div id="ctxmenu" role="menu"></div>
-<div id="geommenu" role="menu"></div>
 <script>
 initApp();
 </script>
