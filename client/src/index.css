@@ -59,6 +59,28 @@ body {
   text-transform: uppercase;
 }
 
+.dup-naming {
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.dup-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
+.dup-hint {
+  padding: 0.35rem 1rem;
+  font-size: 0.75rem;
+  color: var(--muted, #888);
+  border-bottom: 1px solid var(--border);
+}
+
 .problem-list-body {
   flex: 1;
   overflow-y: auto;

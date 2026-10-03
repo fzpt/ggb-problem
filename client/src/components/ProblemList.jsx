@@ -120,37 +120,68 @@ export default function ProblemList() {
     getAdminCheck().then((r) => setIsAdmin(Boolean(r.admin))).catch(() => {});
   }, [user]);
 
-  const duplicateActive = () => {
+  // 复制题目：应用内浏览器拦截 window.prompt，改为行内命名输入
+  const [dupNaming, setDupNaming] = useState(false);
+  const [dupName, setDupName] = useState('');
+  const [dupHint, setDupHint] = useState('');
+  const startDuplicate = () => {
     const src = activeProblem;
     if (!src) {
-      window.alert('请先在列表中选中一道题目，再执行复制。');
+      setDupHint('请先在列表中选中一道题目，再执行复制。');
+      setTimeout(() => setDupHint(''), 2500);
       return;
     }
+    setDupName(`${src.name || '未命名题目'} 副本`);
+    setDupNaming(true);
+  };
+  const confirmDuplicate = () => {
+    const src = activeProblem;
+    if (!src) { setDupNaming(false); return; }
     const defaultName = `${src.name || '未命名题目'} 副本`;
-    const input = window.prompt('请输入新题目名称：', defaultName);
-    if (input === null) return;
     addProblem({
-      name: input.trim() || defaultName,
+      name: dupName.trim() || defaultName,
       imageDataUrl: src.imageDataUrl,
       ocrText: src.ocrText,
       commands: src.commands,
       ggbState: src.ggbState,
+      jxgSteps: src.jxgSteps,
+      engine: src.engine,
       ocrProvider: src.ocrProvider,
       llmProvider: src.llmProvider,
       refineHistory: (src.refineHistory || []).map(h => ({ ...h })),
       refineInput: '',
     });
+    setDupNaming(false);
   };
 
   return (
     <aside className="problem-list">
       <div className="problem-list-head">
         <span className="problem-list-title">题目列表</span>
-        <div className="flex items-center gap-2">
-          <button onClick={duplicateActive} title="复制当前选中的题目">复制</button>
-          <button className="primary" onClick={() => { window.location.hash = '#/entry'; }}>+ New</button>
-        </div>
+        {dupNaming ? (
+          <div className="flex items-center gap-1 dup-naming">
+            <input
+              autoFocus
+              value={dupName}
+              onChange={(e) => setDupName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmDuplicate();
+                if (e.key === 'Escape') setDupNaming(false);
+              }}
+              placeholder="新题目名称"
+              className="dup-name-input"
+            />
+            <button className="primary" onClick={confirmDuplicate}>确定</button>
+            <button onClick={() => setDupNaming(false)}>取消</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={startDuplicate} title="复制当前选中的题目">复制</button>
+            <button className="primary" onClick={() => { window.location.hash = '#/entry'; }}>+ New</button>
+          </div>
+        )}
       </div>
+      {dupHint && <div className="dup-hint">{dupHint}</div>}
       <div className="problem-tabs">
         <button
           className={tab === 'recent' ? 'active' : ''}

@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { saveProblemVersion } from '../services/api';
 
+function base64ToBlob(b64, mime) {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 const formatTime = (ts) => {
   const d = new Date(ts);
   const p = (n) => String(n).padStart(2, '0');
@@ -21,6 +28,7 @@ function stepsSignature(steps) {
 //  iframe→外壳：jxg:ready / jxg:steps-changed（防抖） / jxg:status
 export default function JxgViewer() {
   const iframeRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [iframeReady, setIframeReady] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
   const [toast, setToast] = useState(null);
@@ -71,11 +79,38 @@ export default function JxgViewer() {
         lastIframeStepsRef.current = Array.isArray(d.steps) ? d.steps : [];
       } else if (d.type === 'jxg:status') {
         if (d.level === 'error') setLog(d.message || '画板渲染失败');
+      } else if (d.type === 'jxg:ggb-export') {
+        if (d.error) {
+          setLog('导出 GGB 失败：' + d.error);
+        } else if (d.base64) {
+          const blob = base64ToBlob(d.base64, 'application/vnd.geogebra.file');
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${(activeProblemRef.current?.name || '图形').replace(/[\\/:*?"<>|]/g, '_')}.ggb`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          if (d.warnings?.length) setLog('GGB 已导出，注意：' + d.warnings.join('；'));
+          else setLog('GGB 已导出。');
+        }
+      } else if (d.type === 'jxg:ggb-import') {
+        if (d.error) {
+          setLog('导入 GGB 失败：' + d.error);
+        } else if (d.ok) {
+          // iframe 已渲染成功，直接落库为最新数据（导入是显式操作）
+          const prob = activeProblemRef.current;
+          if (prob) updateProblem(prob.id, { jxgSteps: d.steps });
+          showToast(`已导入 ${d.steps.length} 个图形对象${d.warnings?.length ? `（${d.warnings.length} 条提示）` : ''}`);
+          if (d.warnings?.length) setLog('GGB 导入提示：' + d.warnings.join('；'));
+        }
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [setLog]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setLog, updateProblem]);
 
   // activeProblem 的 ref 版，避免 message effect 频繁重建
   activeProblemRef.current = activeProblem;
@@ -130,6 +165,27 @@ export default function JxgViewer() {
     showToast('已保存当前图形。');
   };
 
+  // GGB 导入/导出：压缩解压都在 iframe 内完成（JSZip 已随画板页本地加载）
+  const exportGgb = () => {
+    if (!iframeReady) return;
+    setLog('正在导出 GGB…');
+    sendToIframe({ type: 'jxg:export-ggb' });
+  };
+  const onGgbFilePicked = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !activeProblem) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      setLog('正在导入 GGB…');
+      sendToIframe({ type: 'jxg:import-ggb', base64 });
+    };
+    reader.onerror = () => setLog('读取文件失败。');
+    reader.readAsDataURL(file);
+  };
+
   const prettySteps = JSON.stringify(lastIframeStepsRef.current || activeProblem?.jxgSteps || [], null, 2);
 
   return (
@@ -151,6 +207,19 @@ export default function JxgViewer() {
           <button onClick={() => { window.location.hash = '#/versions'; }} title="管理该题目保存过的图形版本">
             版本管理
           </button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={!editable} title={editable ? '导入 GeoGebra .ggb 文件替换当前图形' : '只读状态，进入编辑后可导入'}>
+            导入 GGB
+          </button>
+          <button onClick={exportGgb} title="把当前图形导出为 GeoGebra .ggb 文件">
+            导出 GGB
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".ggb,application/vnd.geogebra.file"
+            style={{ display: 'none' }}
+            onChange={onGgbFilePicked}
+          />
           <button onClick={saveNow} disabled={!editable} title={editable ? '把当前画板内容保存为最新数据' : '只读状态，进入编辑后可保存'}>
             保存
           </button>

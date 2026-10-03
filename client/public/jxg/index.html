@@ -603,6 +603,8 @@
 </div>
 
 <script src="vendor/jsxgraphcore.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="ggb-io.js"></script>
 <script>
 /* ============================================================
  * 几何作图原型：工具栏 + 画板 + AI JSON 驱动
@@ -1387,6 +1389,7 @@ document.getElementById('ppReset').addEventListener('click', function () {
 
 /* 右键菜单：挂在画板容器上 */
 document.getElementById('jxgbox').addEventListener('contextmenu', function (e) {
+  if (suppressCtxOnce) { suppressCtxOnce = false; e.preventDefault(); return; }
   if (typeof READ_ONLY !== 'undefined' && READ_ONLY) return;   // 只读态无右键菜单
   e.preventDefault();
   var cPos0 = board.getCoordsTopLeftCorner(e);
@@ -1453,6 +1456,9 @@ var lastSymDownTime = 0, lastSymDownX = 0, lastSymDownY = 0;  // 对称工具双
 var createdIds = [];         // 用户创建的对象 id（用于删除/清空时过滤坐标轴）
 var autoN = 0;
 var panState = null;         // 选择模式下拖动空白背景平移视图时的暂存状态
+var selMarquee = null;       // 选择模式空白左键拉框多选暂存 {x0,y0,x1,y1,div,addKey}
+var rightPan = null;         // 右键拖动平移视图暂存 {sx,sy,moved}
+var suppressCtxOnce = false; // 右键拖动松手后抑制一次 contextmenu
 var lastDownTime = 0, lastDownX = 0, lastDownY = 0;  // 双击检测（多边形双击结束）
 var lastListRefresh = 0;     // 对象列表节流刷新的时间戳
 
@@ -1537,28 +1543,31 @@ function projectPointToCurve(px, py, cv) {
 function snapPointToGrid(pt) {
   if (!pt || pt.elType !== 'point' || pt._defKind === 'glider') return;
   if (!pt.isDraggable || !board.objects[pt.id]) return;
-  /* 整体移动不吸附：多选拖拽时主点跳过磁吸、严格跟随鼠标，其余点刚性跟随 */
-  if (typeof multiDrag !== 'undefined' && multiDrag && multiDrag.primary === pt) return;
+  /* 多选整体移动：只有鼠标点中的主点贴格点（贴线吸附关掉，避免整组被拉到线上），
+   * 其余点由 update 处理器刚性跟随、不单独吸附 */
+  var isGroupPrimary = (typeof multiDrag !== 'undefined' && multiDrag && multiDrag.primary === pt);
   pt._snapCurve = null;
-  /* 1) 贴线优先：SNAP_CURVE_PX 内取投影最近的一条曲线。
-   * 排除以该点为定义点的曲线（避免自吸附退化）、辅助垂线段与不可见曲线。 */
-  var sp = toScreenPx(pt.X(), pt.Y());
-  var best = null, bestQ = null, bestD = Infinity, i, o;
-  for (i = createdIds.length - 1; i >= 0; i--) {
-    o = board.objects[createdIds[i]];
-    if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
-    if (definesPoint(o, pt)) continue;
-    if (o.getAttribute && o.getAttribute('visible') === false) continue;
-    var q = projectPointToCurve(pt.X(), pt.Y(), o);
-    if (!q) continue;
-    var qs = toScreenPx(q[0], q[1]);
-    var dd = Math.hypot(sp[0] - qs[0], sp[1] - qs[1]);
-    if (dd <= SNAP_CURVE_PX && dd < bestD) { best = o; bestQ = q; bestD = dd; }
-  }
-  if (best) {
-    pt._snapCurve = best;   // 供「拖点到线松手加约束」复用候选线
-    pt.setPosition(JXG.COORDS_BY_USER, bestQ);
-    return;
+  if (!isGroupPrimary) {
+    /* 1) 贴线优先：SNAP_CURVE_PX 内取投影最近的一条曲线。
+     * 排除以该点为定义点的曲线（避免自吸附退化）、辅助垂线段与不可见曲线。 */
+    var sp = toScreenPx(pt.X(), pt.Y());
+    var best = null, bestQ = null, bestD = Infinity, i, o;
+    for (i = createdIds.length - 1; i >= 0; i--) {
+      o = board.objects[createdIds[i]];
+      if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
+      if (definesPoint(o, pt)) continue;
+      if (o.getAttribute && o.getAttribute('visible') === false) continue;
+      var q = projectPointToCurve(pt.X(), pt.Y(), o);
+      if (!q) continue;
+      var qs = toScreenPx(q[0], q[1]);
+      var dd = Math.hypot(sp[0] - qs[0], sp[1] - qs[1]);
+      if (dd <= SNAP_CURVE_PX && dd < bestD) { best = o; bestQ = q; bestD = dd; }
+    }
+    if (best) {
+      pt._snapCurve = best;   // 供「拖点到线松手加约束」复用候选线
+      pt.setPosition(JXG.COORDS_BY_USER, bestQ);
+      return;
+    }
   }
   /* 2) 无近线才贴网格（原有逻辑） */
   var gx = Math.round(pt.X()), gy = Math.round(pt.Y());
@@ -1656,6 +1665,15 @@ board.on('move', function (e) {
     updateSymMarqueeDiv();
     return;
   }
+  /* 选择模式拉框多选：更新矩形 */
+  if (selMarquee) {
+    var cPosQ = board.getCoordsTopLeftCorner(e);
+    var absPosQ = JXG.getPosition(e);
+    selMarquee.x1 = absPosQ[0] - cPosQ[0];
+    selMarquee.y1 = absPosQ[1] - cPosQ[1];
+    updateSelMarqueeDiv();
+    return;
+  }
   /* 垂线段第二步：悬停在线段/多边形边上时高亮其两端点 */
   if (mode === 'perpseg' && pendingPts.length >= 1) {
     var cPosH = board.getCoordsTopLeftCorner(e);
@@ -1693,13 +1711,20 @@ board.on('move', function (e) {
     }
     return;
   }
-  if (!panState) return;
-  var dx = cx - panState.sx, dy = cy - panState.sy;
+  var ps = panState || rightPan;
+  if (!ps) return;
+  var dx = cx - ps.sx, dy = cy - ps.sy;
   if (dx === 0 && dy === 0) return;
   var bb = board.getBoundingBox();
   board.setBoundingBox([bb[0] - dx / board.unitX, bb[1] + dy / board.unitY,
                         bb[2] - dx / board.unitX, bb[3] + dy / board.unitY], true, 'update');
-  panState.sx = cx; panState.sy = cy;
+  ps.sx = cx; ps.sy = cy;
+  if (ps === rightPan && !rightPan.moved &&
+      Math.hypot(cx - rightPan.ox, cy - rightPan.oy) > 4) {
+    /* 累计位移超过阈值：判定为平移而非右击，松手时抑制 contextmenu */
+    rightPan.moved = true;
+    suppressCtxOnce = true;
+  }
 });
 /* 多选拖拽：主点被原生拖拽时，其他选中点镜像跟随同样的位移 */
 board.on('update', function () {
@@ -1749,7 +1774,9 @@ function maybeConstrainOnRelease(pt, pre) {
 }
 board.on('up', function () {
   if (symMarquee) finishSymMarquee();
+  if (selMarquee) finishSelMarquee();
   panState = null;
+  rightPan = null;
   var moved = (multiDrag && multiDrag.pushed) || (moveSel && moveSel.pushed);
   /* 单点原生拖拽：真移动了才把"按下时"的快照入栈（multiDrag/moveSel 已记的不重复记） */
   var singleMoved = false;
@@ -1781,7 +1808,7 @@ board.on('up', function () {
 });
 
 var HINTS = {
-  select:  '当前工具：选择 — 点击图形选中（Shift+点击多选）；选中后在选区内按住拖动可整体移动；拖动选区外空白平移视图；点击选区外空白取消选择。',
+  select:  '当前工具：选择 — 点击图形选中（Shift+点击多选）；空白处按住左键拖动可框选多个对象；选中后在选区内按住拖动可整体移动；右键拖动平移视图；点击选区外空白取消选择。',
   point:   '当前工具：点 — 点击空白处新建点；点击已有点附近自动复用；点击两线交叉处自动生成联动交点；点击线/圆/圆弧上自动生成落在上面的约束点。',
   segment: '当前工具：线段 — 依次点击两个位置；点击已有点附近自动复用，点击两线交叉处自动生成联动交点。',
   line:    '当前工具：直线 — 依次点击两个位置；点击已有点附近自动复用，点击两线交叉处自动生成联动交点。',
@@ -2615,6 +2642,58 @@ function finishSymMarquee() {
   updateSymHint();
 }
 
+/* ---------- 选择模式：空白左键拉框多选（视图平移移到右键拖动） ---------- */
+function startSelMarquee(sx, sy, addKey) {
+  var box = document.getElementById('jxgbox');
+  var div = document.createElement('div');
+  div.id = 'symmarquee';
+  box.appendChild(div);
+  selMarquee = { x0: sx, y0: sy, x1: sx, y1: sy, div: div, addKey: !!addKey };
+  updateSelMarqueeDiv();
+}
+function updateSelMarqueeDiv() {
+  if (!selMarquee || !selMarquee.div) return;
+  var d = selMarquee.div;
+  var l = Math.min(selMarquee.x0, selMarquee.x1), t = Math.min(selMarquee.y0, selMarquee.y1);
+  d.style.left = l + 'px'; d.style.top = t + 'px';
+  d.style.width = Math.abs(selMarquee.x1 - selMarquee.x0) + 'px';
+  d.style.height = Math.abs(selMarquee.y1 - selMarquee.y0) + 'px';
+}
+function finishSelMarquee() {
+  var mq = selMarquee;
+  selMarquee = null;
+  if (mq && mq.div && mq.div.parentNode) mq.div.parentNode.removeChild(mq.div);
+  if (!mq) return;
+  var dx = Math.abs(mq.x1 - mq.x0), dy = Math.abs(mq.y1 - mq.y0);
+  if (dx < 4 && dy < 4) {
+    /* 纯点击：取消选择（Shift/Ctrl 保留），等价于原来的"点空白取消" */
+    if (!mq.addKey) clearSelection();
+    updateSelectHint();
+    return;
+  }
+  var ux0 = (Math.min(mq.x0, mq.x1) - board.origin.scrCoords[1]) / board.unitX;
+  var ux1 = (Math.max(mq.x0, mq.x1) - board.origin.scrCoords[1]) / board.unitX;
+  var uy1 = (board.origin.scrCoords[2] - Math.min(mq.y0, mq.y1)) / board.unitY;
+  var uy0 = (board.origin.scrCoords[2] - Math.max(mq.y0, mq.y1)) / board.unitY;
+  if (!mq.addKey) clearSelection();
+  var added = 0;
+  for (var i = 0; i < createdIds.length; i++) {
+    var o = board.objects[createdIds[i]];
+    if (!o || !board.objects[o.id]) continue;
+    /* 隐藏辅助元素（垂线/平行辅助线/同侧候选点）不参与框选 */
+    if (o._defKind === 'perpline' || o._defKind === 'parline' || o._defKind === 'sidecand') continue;
+    if (isSelected(o)) continue;
+    if (symHitsRect(o, ux0, uy0, ux1, uy1)) {
+      selectedObjs.push(o);
+      highlightOn(o);
+      added++;
+    }
+  }
+  updateSelectHint();
+  syncListSelection();
+  if (added > 0) setStatus('框选选中 ' + selectedObjs.length + ' 个对象（Shift+框选可追加）。', true);
+}
+
 /* 生成点 p 关于对称轴/对称中心的联动镜像点（固定约束点，原点或轴移动时自动跟随） */
 function makeMirrorPoint(orig, ax, mtype, name) {
   var el;
@@ -2759,6 +2838,9 @@ function doSymmetry() {
   var count = 0, ptMap = {};
   function mpt(p) {
     if (ptMap[p.id]) return ptMap[p.id];
+    /* 旋转中心 / 对称中心自身（含复合对象里以它为端点/圆心的定义点）：
+     * 它的像就是它本身，直接复用原对象，不重复生成新点 */
+    if (p.id === axis.id) { ptMap[p.id] = axis; return axis; }
     var mp = isRot ? makeRotatePoint(p, axis, angle, nextId('P'))
                    : makeMirrorPoint(p, axis, mtype, nextId('P'));
     trackId(mp.id);
@@ -4020,7 +4102,19 @@ function getUsrCoords(e) {
 }
 
 board.on('down', function (e) {
-  if (e.button === 2) return;        // 右键只走 contextmenu 菜单，不干扰画板状态
+  if (e.button === 2) {
+    /* 右键拖动 = 平移视图（选择/只读模式，与左键空白拖动互斥）；
+     * 原地右击（未拖动）仍走下方 contextmenu 菜单 */
+    if (mode === 'select' || (typeof READ_ONLY !== 'undefined' && READ_ONLY)) {
+      try {
+        var cPosR0 = board.getCoordsTopLeftCorner(e);
+        var absPosR0 = JXG.getPosition(e);
+        var rpx = absPosR0[0] - cPosR0[0], rpy = absPosR0[1] - cPosR0[1];
+        rightPan = { sx: rpx, sy: rpy, ox: rpx, oy: rpy, moved: false };
+      } catch (eR0) { rightPan = null; }
+    }
+    return;
+  }
   /* 只读态：不拦截原生拖拽（点可拖），但只做视图平移兜底，随后直接返回，
    * 禁止一切工具新建/删除/约束/多选搬运 */
   if (typeof READ_ONLY !== 'undefined' && READ_ONLY) {
@@ -4110,9 +4204,10 @@ board.on('down', function (e) {
       panState = null;
       startMoveSelection(sx, sy, null);
     } else {
-      if (!addKey) clearSelection();
-      updateSelectHint();
-      panState = { sx: sx, sy: sy };
+      /* 空白处：左键拖动 = 拉框多选（松手时小于阈值则视为点击取消选择）；
+       * 视图平移改用右键拖动 */
+      panState = null;
+      startSelMarquee(sx, sy, addKey);
     }
     return;
   }
@@ -5278,7 +5373,9 @@ document.querySelectorAll('.chips button').forEach(function (chip) {
 /* ============================================================
  * 嵌入模式：React 外壳经 postMessage 桥控制（新增）
  *  外壳→iframe：jxg:init / jxg:apply-steps / jxg:set-readonly / jxg:ai-result
+ *             jxg:export-ggb（导出 .ggb） / jxg:import-ggb（{base64} 导入 .ggb）
  *  iframe→外壳：jxg:ready / jxg:steps-changed（防抖） / jxg:status
+ *             jxg:ggb-export（{base64|error, warnings}） / jxg:ggb-import（{ok, steps|error, warnings}）
  * ============================================================ */
 var EMBEDDED = (window.parent !== window);
 var READ_ONLY = false;
@@ -5301,6 +5398,14 @@ function notifyStepsChanged() {
 }
 if (EMBEDDED) {
   document.body.classList.add('embedded');
+  /* 按步骤 id（点名）找画板上的点对象，供 GGB 导出的正则多边形顶点计算等使用 */
+  function findPtByName(nm) {
+    for (var k in board.objects) {
+      var o = board.objects[k];
+      if (o && o.elementClass === JXG.OBJECT_CLASS_POINT && o.name === nm) return o;
+    }
+    return null;
+  }
   /* 画板任何变更（新建/删除/拖动/显隐/改名）都会触发 update，统一在这里防抖上报，
    * 替代逐个工具埋点；只读态不上报 */
   board.on('update', notifyStepsChanged);
@@ -5335,6 +5440,47 @@ if (EMBEDDED) {
       else if (Array.isArray(d.steps)) {
         try { renderSteps(d.steps); setStatus('AI 调整已渲染。', true); }
         catch (err) { setStatus('AI 结果渲染失败：' + err.message, false); }
+      }
+    } else if (d.type === 'jxg:export-ggb') {
+      /* 步骤 -> geogebra.xml -> .ggb（zip），base64 回传外壳下载 */
+      try {
+        var curSteps = (snapshotState() || {}).steps || [];
+        var gres = window.GgbIo.stepsToXml(curSteps, function (pid) {
+          var po = findPtByName(pid);
+          return po ? { x: po.X(), y: po.Y() } : null;
+        });
+        var gzip = new JSZip();
+        gzip.file('geogebra.xml', gres.xml);
+        gzip.generateAsync({ type: 'base64', compression: 'DEFLATE' }).then(function (b64) {
+          postToParent({ type: 'jxg:ggb-export', base64: b64, warnings: gres.warnings });
+        }, function (gerr) {
+          postToParent({ type: 'jxg:ggb-export', error: '打包失败：' + gerr.message });
+        });
+      } catch (err) {
+        postToParent({ type: 'jxg:ggb-export', error: err.message });
+      }
+    } else if (d.type === 'jxg:import-ggb') {
+      /* .ggb（base64）-> geogebra.xml -> 步骤 -> 校验并整体重绘 */
+      try {
+        var izip = new JSZip();
+        izip.loadAsync(d.base64, { base64: true }).then(function (z) {
+          var f = z.file('geogebra.xml');
+          if (!f) { postToParent({ type: 'jxg:ggb-import', error: '文件中缺少 geogebra.xml' }); return; }
+          f.async('string').then(function (xml) {
+            try {
+              var ires = window.GgbIo.xmlToSteps(xml);
+              var n2 = renderSteps(ires.steps);
+              setStatus('已从 GGB 导入 ' + n2 + ' 个对象。', true);
+              postToParent({ type: 'jxg:ggb-import', ok: true, steps: ires.steps, warnings: ires.warnings });
+            } catch (err2) {
+              postToParent({ type: 'jxg:ggb-import', error: err2.message });
+            }
+          });
+        }, function (ierr) {
+          postToParent({ type: 'jxg:ggb-import', error: 'GGB 解压失败：' + ierr.message });
+        });
+      } catch (err) {
+        postToParent({ type: 'jxg:ggb-import', error: err.message });
       }
     }
   });
