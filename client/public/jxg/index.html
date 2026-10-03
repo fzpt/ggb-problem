@@ -406,13 +406,6 @@
         <button class="tool" data-action="redo" title="重做（Ctrl+Y）" aria-label="重做" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l6 6-6 6"/><path d="M21 12H10a5 5 0 0 0 0 10h5"/></svg>
         </button>
-        <button class="tool propsbtn" id="btnProps" data-action="props-toggle" title="属性：显示/隐藏选中对象的属性面板" aria-label="属性面板">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M5 8h14M5 16h14"/>
-            <circle cx="15" cy="8" r="2.6" fill="currentColor" stroke="none"/>
-            <circle cx="9" cy="16" r="2.6" fill="currentColor" stroke="none"/>
-          </svg>
-        </button>
         <span class="toolsep"></span>
         <button class="tool" data-mode="select" title="选择：点击图形选中（Shift+点击多选）；在选区内按住拖动可整体移动；拖动选区外空白平移视图" aria-label="选择">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l14 9.5-7.2 1.3L9.5 21z" fill="currentColor" stroke="none"/></svg>
@@ -420,6 +413,7 @@
         <button class="tool" data-mode="marquee" title="框选：按住拖拽拉出虚线框，只有完全被框住的图形才会被选中；Shift/Ctrl+框选可追加；按在已选中的对象上可直接整体移动" aria-label="框选">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="3.5 2.5"><rect x="4.5" y="6.5" width="15" height="11" rx="1"/></svg>
         </button>
+        <span class="toolsep"></span>
         <button class="tool active" data-mode="point" title="点：点击空白处新建点；点已有点附近自动复用；点两线交叉处自动生成联动交点；点线/圆/圆弧上生成落在上面的约束点" aria-label="点">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.6" fill="currentColor"/></svg>
         </button>
@@ -442,6 +436,32 @@
             </button>
           </div>
         </div>
+        <button class="tool" data-mode="polygon" title="多边形：逐个点击顶点，点起点或双击结束" aria-label="多边形">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3L20.5 9.5L16.5 19.5L5.5 18L4 7.5Z"/><circle cx="13" cy="3" r="1.7" fill="currentColor" stroke="none"/><circle cx="20.5" cy="9.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="16.5" cy="19.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="5.5" cy="18" r="1.7" fill="currentColor" stroke="none"/><circle cx="4" cy="7.5" r="1.7" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="ngon" title="正N边形：依次点击两个位置（可复用已有点/交点），按逆时针生成正 N 边形；边数与构造方式在右侧选择" aria-label="正N边形">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.6l7.3 5.3-2.8 8.5H7.5L4.7 8.9z"/><circle cx="12" cy="3.6" r="1.8" fill="currentColor" stroke="none"/><circle cx="7.5" cy="17.4" r="1.8" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <span id="ngonWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">边数<input id="ngonN" type="number" value="6" step="1" min="3" max="60" title="正多边形边数 N（3～60）" style="width:44px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"><select id="ngonMode" title="两点：依次点击两个相邻顶点（逆时针方向）；中心+顶点：先点中心、再点一个顶点" style="font-size:12px;padding:2px;border:1px solid #d0d7de;border-radius:4px;"><option value="twopts">两点</option><option value="center">中心+顶点</option></select></span>
+        <button class="tool" data-mode="circle" title="圆：先点圆心、再点圆上一点" aria-label="圆">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="circle3" title="三点圆：依次点击三个不共线的点，生成三点确定的圆" aria-label="三点圆">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="4" r="1.9" fill="currentColor" stroke="none"/><circle cx="18.9" cy="16" r="1.9" fill="currentColor" stroke="none"/><circle cx="5.1" cy="16" r="1.9" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="arc" title="圆弧：先点圆心，再依次点弧的起点和终点" aria-label="圆弧">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 16.5A9 9 0 0 1 19.5 13.5"/><circle cx="12" cy="13" r="1.6" fill="currentColor" stroke="none"/><circle cx="4.5" cy="16.5" r="1.9" fill="currentColor" stroke="none"/><circle cx="19.5" cy="13.5" r="1.9" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="arc3" title="三点圆弧：依次点三个点，生成三点外接圆上依次经过这三点的圆弧" aria-label="三点圆弧">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 17A9.5 9.5 0 0 1 20 15.5"/><circle cx="4" cy="17" r="1.9" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8.6" r="1.9" fill="currentColor" stroke="none"/><circle cx="20" cy="15.5" r="1.9" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="intersect" title="交点：依次点击两条直线/线段/圆，生成联动交点" aria-label="交点">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4.5" y1="19.5" x2="19.5" y2="4.5"/><line x1="4.5" y1="4.5" x2="19.5" y2="19.5"/><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <span class="toolsep"></span>
+        <button class="tool" data-mode="midpoint" title="中点：点击一条线段直接取中点；或依次点击两个点取其中点" aria-label="中点">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2.2" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="3.6" stroke-width="2"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>
+        </button>
         <div class="toolgroup" id="triCenterGroup" title="三角形中心：内心 / 外心 / 垂心">
           <button class="tool" data-mode="incenter" id="triCenterGroupMain" title="内心：依次点击三个点，生成三角形内心（缺省名 O）" aria-label="内心">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 L20.5 20 L3.5 20 Z"/><circle cx="12" cy="14.6" r="3.4" stroke-width="1.4"/><circle cx="12" cy="14.6" r="1.1" fill="currentColor" stroke="none"/></svg>
@@ -496,12 +516,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M17.6 2.8v3.6h-3.6"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
         <span id="rotAngleWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">角度<input id="rotAngle" type="number" value="90" step="5" min="-360" max="360" title="旋转角度（度，逆时针为正）" style="width:54px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
-        <button class="tool" data-mode="circle" title="圆：先点圆心、再点圆上一点" aria-label="圆">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="circle3" title="三点圆：依次点击三个不共线的点，生成三点确定的圆" aria-label="三点圆">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="4" r="1.9" fill="currentColor" stroke="none"/><circle cx="18.9" cy="16" r="1.9" fill="currentColor" stroke="none"/><circle cx="5.1" cy="16" r="1.9" fill="currentColor" stroke="none"/></svg>
-        </button>
+        <span class="toolsep"></span>
         <button class="tool" data-mode="ellipse" title="椭圆：依次点击两个焦点，再点击椭圆上一点" aria-label="椭圆">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="5.6"/><circle cx="8.4" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="15.6" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="6.4" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
@@ -514,29 +529,18 @@
         <button class="tool" data-mode="conic" title="五点二次曲线：依次点击五个点（任三点不共线），自动生成椭圆/双曲线/抛物线" aria-label="五点二次曲线">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="8.6" ry="5.4"/><circle cx="20" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.6" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.4" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="6.6" r="1.5" fill="currentColor" stroke="none"/></svg>
         </button>
-        <button class="tool" data-mode="arc" title="圆弧：先点圆心，再依次点弧的起点和终点" aria-label="圆弧">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 16.5A9 9 0 0 1 19.5 13.5"/><circle cx="12" cy="13" r="1.6" fill="currentColor" stroke="none"/><circle cx="4.5" cy="16.5" r="1.9" fill="currentColor" stroke="none"/><circle cx="19.5" cy="13.5" r="1.9" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="arc3" title="三点圆弧：依次点三个点，生成三点外接圆上依次经过这三点的圆弧" aria-label="三点圆弧">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 17A9.5 9.5 0 0 1 20 15.5"/><circle cx="4" cy="17" r="1.9" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8.6" r="1.9" fill="currentColor" stroke="none"/><circle cx="20" cy="15.5" r="1.9" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="intersect" title="交点：依次点击两条直线/线段/圆，生成联动交点" aria-label="交点">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4.5" y1="19.5" x2="19.5" y2="4.5"/><line x1="4.5" y1="4.5" x2="19.5" y2="19.5"/><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="midpoint" title="中点：点击一条线段直接取中点；或依次点击两个点取其中点" aria-label="中点">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2.2" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="3.6" stroke-width="2"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="polygon" title="多边形：逐个点击顶点，点起点或双击结束" aria-label="多边形">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3L20.5 9.5L16.5 19.5L5.5 18L4 7.5Z"/><circle cx="13" cy="3" r="1.7" fill="currentColor" stroke="none"/><circle cx="20.5" cy="9.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="16.5" cy="19.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="5.5" cy="18" r="1.7" fill="currentColor" stroke="none"/><circle cx="4" cy="7.5" r="1.7" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <button class="tool" data-mode="ngon" title="正N边形：依次点击两个位置（可复用已有点/交点），按逆时针生成正 N 边形；边数与构造方式在右侧选择" aria-label="正N边形">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.6l7.3 5.3-2.8 8.5H7.5L4.7 8.9z"/><circle cx="12" cy="3.6" r="1.8" fill="currentColor" stroke="none"/><circle cx="7.5" cy="17.4" r="1.8" fill="currentColor" stroke="none"/></svg>
-        </button>
-        <span id="ngonWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">边数<input id="ngonN" type="number" value="6" step="1" min="3" max="60" title="正多边形边数 N（3～60）" style="width:44px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"><select id="ngonMode" title="两点：依次点击两个相邻顶点（逆时针方向）；中心+顶点：先点中心、再点一个顶点" style="font-size:12px;padding:2px;border:1px solid #d0d7de;border-radius:4px;"><option value="twopts">两点</option><option value="center">中心+顶点</option></select></span>
+        <span class="toolsep"></span>
         <button class="tool" data-mode="delete" title="删除：点击某个图形删除它（删点会连带删除依赖图形）" aria-label="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
         <span class="toolsep"></span>
+        <button class="tool propsbtn" id="btnProps" data-action="props-toggle" title="属性：显示/隐藏选中对象的属性面板" aria-label="属性面板">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M5 8h14M5 16h14"/>
+            <circle cx="15" cy="8" r="2.6" fill="currentColor" stroke="none"/>
+            <circle cx="9" cy="16" r="2.6" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
         <button class="tool" data-action="traceanim" title="轨迹运动：所有线上的主动点按各自的活动周期运动，开启“生成轨迹”的从动点留下轨迹；再次点击停止（轨迹保留）" aria-label="轨迹运动">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 18c4-1.2 5.5-6.5 9.5-6.5S17 14 20 12" stroke-dasharray="2.6 2.4"/><circle cx="19.4" cy="11.6" r="3.1" fill="currentColor" stroke="none"/><circle cx="19.4" cy="11.6" r="3.1"/></svg>
         </button>

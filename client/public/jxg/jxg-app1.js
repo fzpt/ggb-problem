@@ -358,17 +358,23 @@ function togglePropPanel() {
 function showCtxMenu(cx, cy, o) {
   var m = document.getElementById('ctxmenu');
   var isPt = o.elementClass === JXG.OBJECT_CLASS_POINT;
+  /* 只有完全被确定的从动点（中点/交点/垂足/中心/对称点等，isDrivenPoint）
+   * 才有"生成轨迹"选项；自由点/约束点（可自己动）不显示 */
+  var canTrace = isPt && isDrivenPoint(o);
+  var isGlider = isPt && o._defKind === 'glider';
   var h = '';
-  if (isPt) {
+  if (canTrace) {
     h += '<button data-act="trace"><span>生成轨迹</span><span class="ck">' + (o._traceOn ? '✓' : '') + '</span></button>';
     h += '<button data-act="cleartrace"' + (traceCurves[o.id] ? '' : ' disabled') +
          '><span>清除轨迹</span><span></span></button>';
-    if (o._defKind === 'glider') {
-      var per = (typeof o._period === 'number' && o._period > 0) ? o._period : TRACE_DEFAULT_PERIOD;
-      h += '<div class="periodrow"><span>活动周期</span>' +
-           '<input id="ctxPeriod" type="number" min="0.5" max="120" step="0.5" value="' + per + '">' +
-           '<span>秒</span><button data-act="periodok" style="width:auto;padding:4px 10px;">确定</button></div>';
-    }
+  }
+  if (isGlider) {
+    var per = (typeof o._period === 'number' && o._period > 0) ? o._period : TRACE_DEFAULT_PERIOD;
+    h += '<div class="periodrow"><span>活动周期</span>' +
+         '<input id="ctxPeriod" type="number" min="0.5" max="120" step="0.5" value="' + per + '">' +
+         '<span>秒</span><button data-act="periodok" style="width:auto;padding:4px 10px;">确定</button></div>';
+  }
+  if (canTrace || isGlider) {
     h += '<hr>';
   }
   h += '<button data-act="props"><span>属性…</span><span></span></button>';
