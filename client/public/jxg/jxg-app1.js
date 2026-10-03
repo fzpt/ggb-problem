@@ -844,6 +844,33 @@ var symAxis = null;            // 对称工具暂存的对称轴（线对象）/
 var symPending = [];           // 对称工具多选的待对称对象 id
 var symMarquee = null;         // 对称工具框选中的暂存 {x0,y0,x1,y1,div}
 var lastSymDownTime = 0, lastSymDownX = 0, lastSymDownY = 0;  // 对称工具双击检测
+
+/* 组合手势历史捆绑：多次点击完成一次作图的工具，整组只记一条撤销。
+ * histBundled：false=无；'open'=手势进行中尚未创建对象（懒记——第一次真正创建
+ * 时才 pushHistory）；true=已记一条，同手势后续创建全部跳过。 */
+var histBundled = false;
+/* 多次点击完成一次作图的工具（线段/圆/正多边形/交点/平行…）：进入即开包 */
+var COMPOSITE_BUNDLE_MODES = {
+  segment: 1, line: 1, ray: 1, circle: 1,
+  circle3: 1, arc: 1, arc3: 1, ngon: 1, polygon: 1,
+  intersect: 1, midpoint: 1, perpendicular: 1, perpseg: 1,
+  bisector: 1, incenter: 1, circumcenter: 1, orthocenter: 1,
+  pline: 1, pray: 1, pseg: 1, psegfree: 1
+};
+var gestureGroupIds = [];   // 本次手势创建的对象内部 id（登记列表分组用）
+var objGroups = [];         // 对象列表分组：组合手势生成的对象块，列表拖拽不可拆散
+/* 结束一次组合手势：登记列表分组（按内部 id，存活且 >1 个才成组；
+ * 内部 id 撤销后不再复用，避免分组误套到同名新对象上），重置开包状态 */
+function closeHistoryBundle() {
+  if (histBundled === true && gestureGroupIds.length > 1) {
+    var ids = gestureGroupIds.filter(function (id, i) {
+      return id && gestureGroupIds.indexOf(id) === i && createdIds.indexOf(id) >= 0;
+    });
+    if (ids.length > 1) objGroups.push(ids);
+  }
+  histBundled = false;
+  gestureGroupIds = [];
+}
 var createdIds = [];         // 用户创建的对象 id（用于删除/清空时过滤坐标轴）
 var autoN = 0;
 var panState = null;         // 选择模式下拖动空白背景平移视图时的暂存状态

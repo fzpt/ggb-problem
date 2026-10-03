@@ -47,6 +47,7 @@ function syncGroupMain(gid, m) {
 }
 function setMode(m) {
   var oldMode = mode;   // 记录切换前的工具：选择 ⇄ 框选互切时保留选择集
+  closeHistoryBundle();   // 切换工具：结束未完成的组合手势（已创建的记账保留）
   document.querySelectorAll('#toolbar button[data-mode]').forEach(function (b) {
     if (b.getAttribute('data-mode') === m) b.classList.add('active');
     else b.classList.remove('active');
@@ -209,7 +210,16 @@ function nextId(prefix) {
 
 /* 登记一个用户对象 id 并刷新对象列表（所有新增统一走这里，避免漏刷新） */
 function trackId(id) {
-  if (!suppressHistory) pushHistory();  // 先记下"新增之前"的快照，用于撤销
+  if (!suppressHistory) {
+    if (histBundled === true) {
+      /* 组合手势：第一次创建时已统一记一条，后续创建跳过 */
+    } else {
+      pushHistory();   // 先记下"新增之前"的快照，用于撤销；'open' 状态在 pushHistory 里转为已记
+    }
+    if (histBundled) {
+      gestureGroupIds.push(id);
+    }
+  }
   createdIds.push(id);
   /* 批量重建期间（suppressHistory=true）不逐个刷新列表，由 renderSteps 统一刷一次，避免闪烁 */
   if (!suppressHistory) { try { refreshObjectList(); } catch (e) {} }
@@ -429,6 +439,8 @@ function snapshotState() {
 /* 记录一次历史（调用方保证在变更之前调用） */
 function pushHistory() {
   if (suppressHistory) return;
+  if (histBundled === true) return;   // 组合手势：第一次创建时已统一记一条
+  if (histBundled === 'open') histBundled = true;   // 组合手势的显式记账：视同第一次创建
   undoStack.push(snapshotState());
   if (undoStack.length > 100) undoStack.shift();
   redoStack = [];
@@ -444,6 +456,7 @@ function updateUndoButtons() {
 /* 用快照重建画板（不记录历史） */
 function restoreState(snap) {
   if (traceAnim.running) stopTraceAnimation();   // 撤销/重做时先停下轨迹运动
+  closeHistoryBundle();   // 撤销/重做结束未完成的组合手势（分组登记走存活检查）
   suppressHistory = true;
   try {
     renderStepsFrozen(snap.steps);  // 盖冻结帧重建，避免异步校准造成闪烁
@@ -626,28 +639,70 @@ function refreshObjectList() {
   });
   box.innerHTML = html || '<div class="objempty">暂无对象</div>';
 }
-/* 列表拖拽排序：只改 listOrder 显示顺序 */
+/* 列表拖拽排序：只改 listOrder 显示顺序。
+ * 组合手势生成的对象块（objGroups，按对象名记录）保持连续：
+ * 拖分组成员 = 整块一起移动；任何对象都不允许插入块中间（吸附到最近边缘）。 */
 (function () {
   var box = document.getElementById('objlist');
   if (!box) return;
-  var dragId = null;
+  var dragIds = [];
   function rowOf(t) { return (t && t.closest) ? t.closest('.objrow') : null; }
   function clearHints() {
     box.querySelectorAll('.drop-before,.drop-after').forEach(function (r) {
       r.classList.remove('drop-before'); r.classList.remove('drop-after');
     });
   }
+  /* dragId 所在的分块（当前存活且成员>1 才生效）：返回整组成员 id */
+  function groupBlockOf(id) {
+    for (var gi = 0; gi < objGroups.length; gi++) {
+      var g = objGroups[gi];
+      if (g.indexOf(id) < 0) continue;
+      var ids = g.filter(function (oid) { return createdIds.indexOf(oid) >= 0 && board.objects[oid]; });
+      return ids.length > 1 ? ids : null;
+    }
+    return null;
+  }
+  /* 各分块当前在 listOrder 里的位置（存活成员；不连续/不足 2 个的块返回 null） */
+  function groupRanges() {
+    var ranges = [];
+    objGroups.forEach(function (g) {
+      var idxs = [];
+      g.forEach(function (oid) {
+        var li = listOrder.indexOf(oid);
+        if (li >= 0 && board.objects[oid]) idxs.push(li);
+      });
+      if (idxs.length < 2) return;
+      var pmin = Math.min.apply(null, idxs), pmax = Math.max.apply(null, idxs);
+      if (idxs.length !== pmax - pmin + 1) return;   // 块已不连续（成员被删/散开），放弃约束
+      ranges.push([pmin, pmax]);
+    });
+    return ranges;
+  }
+  /* 插入位置吸附：不允许落在任何分块 (pmin, pmax] 区间内，取最近的块边缘 */
+  function snapOutOfGroups(ins) {
+    for (;;) {
+      var snapped = false;
+      groupRanges().forEach(function (rg) {
+        if (ins > rg[0] && ins <= rg[1]) {
+          ins = (ins - rg[0] <= rg[1] + 1 - ins) ? rg[0] : rg[1] + 1;
+          snapped = true;
+        }
+      });
+      if (!snapped) return ins;
+    }
+  }
   box.addEventListener('dragstart', function (e) {
     var row = rowOf(e.target);
     if (!row) return;
-    dragId = row.getAttribute('data-id');
+    var dragId = row.getAttribute('data-id');
+    dragIds = groupBlockOf(dragId) || [dragId];
     row.classList.add('dragging');
     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); } catch (err) {}
   });
   box.addEventListener('dragover', function (e) {
-    if (!dragId) return;
+    if (!dragIds.length) return;
     var row = rowOf(e.target);
-    if (!row || row.getAttribute('data-id') === dragId) { clearHints(); return; }
+    if (!row || dragIds.indexOf(row.getAttribute('data-id')) >= 0) { clearHints(); return; }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
     clearHints();
@@ -661,22 +716,25 @@ function refreshObjectList() {
     if (row) { row.classList.remove('drop-before'); row.classList.remove('drop-after'); }
   });
   box.addEventListener('drop', function (e) {
-    if (!dragId) return;
+    if (!dragIds.length) return;
     var row = rowOf(e.target);
     e.preventDefault();
     clearHints();
-    if (row && row.getAttribute('data-id') !== dragId) {
+    if (row && dragIds.indexOf(row.getAttribute('data-id')) < 0) {
       var targetId = row.getAttribute('data-id');
       var after = !!row._dropAfter;
-      listOrder = listOrder.filter(function (oid) { return oid !== dragId; });
+      var moving = dragIds.slice();
+      listOrder = listOrder.filter(function (oid) { return moving.indexOf(oid) < 0; });
       var ti = listOrder.indexOf(targetId);
-      listOrder.splice(after ? ti + 1 : ti, 0, dragId);
+      if (ti < 0) { dragIds = []; return; }
+      var ins = snapOutOfGroups(after ? ti + 1 : ti);
+      moving.forEach(function (oid, k) { listOrder.splice(ins + k, 0, oid); });
       refreshObjectList();
     }
-    dragId = null;
+    dragIds = [];
   });
   box.addEventListener('dragend', function () {
-    dragId = null;
+    dragIds = [];
     clearHints();
     box.querySelectorAll('.dragging').forEach(function (r) { r.classList.remove('dragging'); });
   });
@@ -1244,6 +1302,19 @@ board.on('down', function (e) {
   /* 用户坐标（select 分支的选区判断需要用到，提前计算） */
   var coords = getUsrCoords(e);
   var x = coords.usrCoords[1], y = coords.usrCoords[2];
+
+  /* 组合手势历史捆绑：拾取状态全部清空 = 上个手势已结束 → 关闭旧包并登记列表分组；
+   * 组合工具在无 pending 状态下开新包（懒记：第一次真正创建对象时才 pushHistory），
+   * 同一手势里的点/辅助/图形共享一条撤销。 */
+  if (histBundled !== false && !pendingPts.length && !polyPts.length && !pendingCurve &&
+      pendingParPoint === null && !symPending.length) {
+    closeHistoryBundle();
+  }
+  if (histBundled === false && COMPOSITE_BUNDLE_MODES[mode] &&
+      !pendingPts.length && !polyPts.length && !pendingCurve && pendingParPoint === null) {
+    histBundled = 'open';
+    gestureGroupIds = [];
+  }
 
   /* 框选工具：按住拖拽拉出虚线框；只有完全被框住的图形才会被选中 */
   if (mode === 'marquee') {
