@@ -1356,15 +1356,21 @@ function highlightOn(o) {
     /* 封闭复合对象（圆/圆弧/二次曲线/多边形等）选中只把边缘标红：
      * 不改填充色（否则整片覆盖区域标红）、不加粗描边（否则外圈像黑框）；
      * 线/点维持原来的加粗标红 */
-    var closed = o.elementClass === JXG.OBJECT_CLASS_CURVE ||
-                 o.elementClass === JXG.OBJECT_CLASS_CIRCLE ||
-                 o.elementClass === JXG.OBJECT_CLASS_AREA;
+    var closed = isClosedComposite(o);
     var attrs = { strokeColor: '#ff3b30' };
     if (!closed) attrs.fillColor = '#ff3b30';
     o.setAttribute(attrs);
     if (o.elementClass === JXG.OBJECT_CLASS_POINT) o.setAttribute({ size: 7 });
     else if (!closed) o.setAttribute({ strokeWidth: 5 });
   } catch (e) {}
+}
+/* 封闭复合对象：圆/圆弧/椭圆/双曲线/抛物线/二次曲线/扇形/多边形等
+ * （elementClass 为 CURVE/CIRCLE/AREA）。这类对象高亮只标边缘，
+ * 改填充色会糊满整片内部，加粗描边会像外框 */
+function isClosedComposite(o) {
+  return o && (o.elementClass === JXG.OBJECT_CLASS_CURVE ||
+               o.elementClass === JXG.OBJECT_CLASS_CIRCLE ||
+               o.elementClass === JXG.OBJECT_CLASS_AREA);
 }
 function highlightOff(o) {
   try { if (o._selBackup) o.setAttribute(o._selBackup); } catch (e) {}
@@ -1381,8 +1387,12 @@ function candHighlightOn(o) {
   if (o._selBackup) return;   // 已处于选中红色：保持，不改色
   o._candBackup = saveVis(o);
   try {
-    o.setAttribute({ strokeColor: '#ff9500', fillColor: '#ff9500' });
-    if (o.elementClass !== JXG.OBJECT_CLASS_POINT) o.setAttribute({ strokeWidth: 5 });
+    /* 与选中高亮一致：封闭复合对象只把边缘标橙，不改填充、不加粗 */
+    var closed = isClosedComposite(o);
+    var attrs2 = { strokeColor: '#ff9500' };
+    if (!closed) attrs2.fillColor = '#ff9500';
+    o.setAttribute(attrs2);
+    if (o.elementClass !== JXG.OBJECT_CLASS_POINT && !closed) o.setAttribute({ strokeWidth: 5 });
   } catch (e) {}
 }
 function candHighlightOff() {
