@@ -271,7 +271,9 @@ function renderStepsFrozen(steps) {
   var ov = showFrozenFrame();
   var n;
   try {
-    n = renderSteps(steps);
+    /* 步骤 id 查重：AI 生成或手改的 JSON 常有重复名（尤其点），
+     * 重复者自动顺延改名并重写后续引用，避免重建后画板同名/互相顶掉 */
+    n = renderSteps(dedupeStepIds(steps));
   } catch (e) {
     hideFrozenFrame();   // 重建失败立刻揭开，不遮挡错误状态
     throw e;
@@ -798,9 +800,43 @@ function renameRefsInStep(s, oldN, newN) {
     if (c.mirror.of === oldN) c.mirror.of = newN;
     if (c.mirror.axis === oldN) c.mirror.axis = newN;
   }
+  if (c.side) {    // 同侧/异侧约束同样按名字引用，需一并重写
+    c.side = { line: c.side.line, point: c.side.point, rel: c.side.rel };
+    if (c.side.line === oldN) c.side.line = newN;
+    if (c.side.point === oldN) c.side.point = newN;
+  }
+  /* 表达式点（exprpoint 的 x/y）以标识符引用点名：整词替换，避免误伤含该串的其他标识符 */
+  if (typeof c.x === 'string' || typeof c.y === 'string') {
+    var re = new RegExp('(^|[^A-Za-z0-9_])' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
+    if (typeof c.x === 'string') c.x = c.x.replace(re, '$1' + newN);
+    if (typeof c.y === 'string') c.y = c.y.replace(re, '$1' + newN);
+  }
   if (Array.isArray(c.through3)) c.through3 = c.through3.map(function (v) { return v === oldN ? newN : v; });
   if (Array.isArray(c.points)) c.points = c.points.map(function (v) { return v === oldN ? newN : v; });
   return c;
+}
+/* 渲染前查重：AI 生成或手改的 JSON 步骤可能带重复 id（尤其点）。
+ * 重复的自动顺延改名（B → B_1 → B_2…），并把后续步骤里的引用一并重写，
+ * 避免后建对象顶掉先建对象或画板出现同名图形。 */
+function dedupeStepIds(steps) {
+  if (!Array.isArray(steps) || steps.length < 2) return steps;
+  var used = {}, out = steps.slice();
+  out.forEach(function (s, i) {
+    if (!s || typeof s.id !== 'string' || !s.id) return;
+    if (!used[s.id]) { used[s.id] = true; return; }
+    var old = s.id, cand, k = 1;
+    do { cand = old + '_' + k; k++; } while (used[cand] || nameTaken(cand));
+    used[cand] = true;
+    out[i] = renameRefsInStep(out[i], old, cand);
+    out[i].id = cand;
+    for (var j = i + 1; j < out.length; j++) {
+      if (!out[j]) continue;
+      var keepId = out[j].id;
+      out[j] = renameRefsInStep(out[j], old, cand);
+      out[j].id = keepId;
+    }
+  });
+  return out;
 }
 /* 三点构成的三角形面积（绝对值），用于三点圆的共线校验 */
 function triArea(a, b, c) {

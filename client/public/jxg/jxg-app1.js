@@ -2046,6 +2046,34 @@ function rectContainsObject(o, ux0, uy0, ux1, uy1) {
     }
     /* 取不到圆心/半径时退化为定义点全包含 */
   }
+  /* 圆弧：沿实际绘制的弧段采样（约 5° 一段），整段都在框内才算选中；
+   * 圆心只是定义点，不要求入框（劣弧的圆心常落在弧的包围框之外）。 */
+  if (o.elType === 'arc') {
+    var ac = (typeof symCircleCenter === 'function') ? symCircleCenter(o) : null;
+    var par = o.parents || [];
+    var ast = null, aen = null;
+    for (i = 0; i < par.length; i++) {
+      var pp = (par[i] && par[i].id) ? board.objects[par[i].id] : par[i];
+      if (!pp || pp === ac || typeof pp.X !== 'function') continue;
+      if (!ast) ast = pp; else if (!aen) aen = pp;
+    }
+    var ar = NaN;
+    try { ar = (typeof o.Radius === 'function') ? o.Radius() : NaN; } catch (e) {}
+    if (ac && ast && aen && isFinite(ar)) {
+      var t1 = Math.atan2(ast.Y() - ac.Y(), ast.X() - ac.X());
+      var t2 = Math.atan2(aen.Y() - ac.Y(), aen.X() - ac.X());
+      var span = t2 - t1;
+      while (span <= 1e-9) span += Math.PI * 2;   /* JSXGraph 圆弧从起点逆时针扫到终点 */
+      span = Math.min(span, Math.PI * 2);
+      var segN = Math.max(8, Math.ceil(span / (Math.PI / 36)));
+      for (i = 0; i <= segN; i++) {
+        var ang = t1 + span * (i / segN);
+        if (!inside(ac.X() + ar * Math.cos(ang), ac.Y() + ar * Math.sin(ang))) return false;
+      }
+      return true;
+    }
+    /* 取不到圆心/端点时退化为定义点全包含 */
+  }
   if (!pts.length) return false;
   for (i = 0; i < pts.length; i++) {
     p = pts[i];
