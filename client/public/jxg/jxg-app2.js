@@ -18,11 +18,7 @@ document.addEventListener('keydown', function (e) {
     closeToolFlyout(); resetParallel(); resetSym(); hideCtxMenu(); closePropPanel();
     /* 构建过程中（多步拾取/多边形顶点/交点/平行/对称旋转/框选）按 Esc 取消当前构建，
      * 停留在当前工具；无构建进行时 Esc 不动选择集 */
-    var busy = pendingPts.length || polyPts.length || pendingCurve ||
-               pendingParPoint !== null || symPending.length || !!symAxis ||
-               (typeof marqueeState !== 'undefined' && !!marqueeState) ||
-               (typeof symMarquee !== 'undefined' && !!symMarquee);
-    if (busy) {
+    if (isConstructing()) {
       setMode(mode);   // 同模式重入：清空一切拾取态/预览/框选/高亮，并复位提示
       setStatus('已取消当前构建。', true);
     }

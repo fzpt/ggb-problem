@@ -897,11 +897,33 @@ document.getElementById('ppReset').addEventListener('click', function () {
   $('gsFont').addEventListener('change', function () { globalStyle.fontFamily = this.value; });
 })();
 
+/* 是否有进行中的构建（多步拾取/多边形顶点/交点选线/平行/对称/旋转/框选）。
+ * Esc 与"构建中右键 = Esc"共用此判定；拾取态定义在 jxg-app2.js（后加载），
+ * 事件触发时都已就绪，这里用 typeof 兜底防止加载期引用报错。 */
+function isConstructing() {
+  return !!(typeof pendingPts !== 'undefined' && pendingPts.length) ||
+         !!(typeof polyPts !== 'undefined' && polyPts.length) ||
+         !!(typeof pendingCurve !== 'undefined' && pendingCurve) ||
+         !!(typeof pendingParPoint !== 'undefined' && pendingParPoint !== null) ||
+         !!(typeof symPending !== 'undefined' && symPending.length) ||
+         !!(typeof symAxis !== 'undefined' && symAxis) ||
+         !!(typeof marqueeState !== 'undefined' && marqueeState) ||
+         !!(typeof symMarquee !== 'undefined' && symMarquee);
+}
 /* 右键菜单：挂在画板容器上 */
 document.getElementById('jxgbox').addEventListener('contextmenu', function (e) {
   if (suppressCtxOnce) { suppressCtxOnce = false; e.preventDefault(); return; }
   if (typeof READ_ONLY !== 'undefined' && READ_ONLY) return;   // 只读态无右键菜单
   e.preventDefault();
+  /* 构建过程中：右键等价 Esc —— 取消当前构建并停留在当前工具，不弹对象菜单。
+   * 右键按下在构建工具里本来就不产生拾取（board.on('down') 对右键提前返回），
+   * 因此到这里时构建仍停留在按下前的状态，直接取消即可。 */
+  if (isConstructing()) {
+    hideCtxMenu();
+    try { setMode(mode); } catch (eC) {}   // 同模式重入：清空拾取态/预览/框选/高亮
+    try { setStatus('已取消当前构建。', true); } catch (eS) {}
+    return;
+  }
   var cPos0 = board.getCoordsTopLeftCorner(e);
   var absPos0 = JXG.getPosition(e);
   var sx = absPos0[0] - cPos0[0], sy = absPos0[1] - cPos0[1];
