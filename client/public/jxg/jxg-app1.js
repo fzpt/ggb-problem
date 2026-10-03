@@ -349,10 +349,8 @@ function togglePropPanel() {
   if (p && p.style.display === 'block') { closePropPanel(); return; }
   hideCtxMenu();
   var alive = selectedObjs.filter(function (o) { return board.objects[o.id]; });
-  if (!alive.length) {
-    setStatus('请先在画板中选中一个对象，再打开属性面板。', false);
-    return;
-  }
+  /* 任何时候都可以开属性：无选中时显示背景（坐标轴/网格）属性 */
+  if (!alive.length) { openBoardPropPanel(); return; }
   openPropPanel(alive.length === 1 ? alive[0] : alive);
 }
 function showCtxMenu(cx, cy, o) {
@@ -421,6 +419,7 @@ function showCtxMenu(cx, cy, o) {
  * 对象属性面板（支持多选：仅显示共同样式属性）
  * ============================================================ */
 var propTarget = null;        // 单对象或对象数组（多选：不显示名称/定义等不可一致的内容）
+var propBoardMode = false;    // 背景模式：无选中对象时显示坐标轴/网格设置
 var propHistPushed = false;
 var touchedFields = {};       // 本次打开中用户实际改过的字段；多选时未触碰的字段不应用，保持各对象原值
 function propTargetList() {
@@ -434,9 +433,11 @@ function closePropPanel() {
   var p = document.getElementById('proppanel');
   if (p) p.style.display = 'none';
   propTarget = null;
+  propBoardMode = false;
   syncPropsBtn();
 }
 function openPropPanel(target, cx, cy) {
+  propBoardMode = false;
   var list = Array.isArray(target) ? target.slice() : (target ? [target] : []);
   list = list.filter(function (o) { return o && board.objects[o.id]; });
   if (!list.length) return;
@@ -447,6 +448,69 @@ function openPropPanel(target, cx, cy) {
   var p = document.getElementById('proppanel');
   p.style.display = 'block';
   syncPropsBtn();
+}
+/* ============================================================
+ * 背景（画板）属性：坐标轴 / 网格
+ * ============================================================ */
+function boardAxisEls() {
+  var xs = [];
+  for (var id in board.objects) {
+    var o = board.objects[id];
+    if (o && o.elType === 'axis') xs.push(o);
+  }
+  return xs;
+}
+/* 主网格元素（JSXGraph 网格是主从一对：xxx 与 xxx_minor，从属随主显隐） */
+function boardGridEl() {
+  for (var id in board.objects) {
+    var o = board.objects[id];
+    if (o && o.elType === 'grid' && o.id.slice(-6) !== '_minor') return o;
+  }
+  return null;
+}
+function boardAxesOn() {
+  var xs = boardAxisEls();
+  return xs.length > 0 && xs.every(function (a) { return a.visProp.visible !== false; });
+}
+function boardGridOn() {
+  var g = boardGridEl();
+  return !!(g && g.visProp.visible !== false);
+}
+function setBoardGridVisible(v) {
+  var g = boardGridEl();
+  if (g) { g.setAttribute({ visible: v }); board.update(); }
+}
+function setBoardAxesVisible(v) {
+  boardAxisEls().forEach(function (a) { a.setAttribute({ visible: v }); });
+  if (!v) setBoardGridVisible(false);   // 无坐标轴时网格无意义，一并关闭
+  board.update();
+}
+function openBoardPropPanel() {
+  propTarget = null;
+  propBoardMode = true;
+  renderPropPanel();
+  document.getElementById('proppanel').style.display = 'block';
+  syncPropsBtn();
+}
+function renderBoardPropPanel() {
+  document.getElementById('ppTitle').textContent = '属性：背景';
+  var axesOn = boardAxesOn(), gridOn = boardGridOn();
+  var h = '';
+  h += '<div class="prow"><span>坐标轴</span><span class="ctl">' +
+       '<input type="checkbox" id="ppAxes"' + (axesOn ? ' checked' : '') + '></span></div>';
+  h += '<div class="prow"' + (axesOn ? '' : ' style="opacity:.45;"') + '><span>网格</span><span class="ctl">' +
+       '<input type="checkbox" id="ppGrid"' + (gridOn ? ' checked' : '') + (axesOn ? '' : ' disabled') +
+       '></span></div>';
+  document.getElementById('ppBody').innerHTML = h;
+  var foot = document.querySelector('#proppanel .pfoot');
+  if (foot) foot.style.display = 'none';   // 背景属性无“恢复为当前样式”
+  var ax = document.getElementById('ppAxes');
+  if (ax) ax.addEventListener('change', function () {
+    setBoardAxesVisible(ax.checked);
+    renderBoardPropPanel();   // 关轴后网格联动关闭并置灰，重显刷新勾选/禁用态
+  });
+  var gr = document.getElementById('ppGrid');
+  if (gr) gr.addEventListener('change', function () { setBoardGridVisible(gr.checked); });
 }
 /* 数字格式化：保留两位小数去尾零 */
 function ppNum(x) {
@@ -535,6 +599,9 @@ function equationTextOf(o) {
   return '';
 }
 function renderPropPanel() {
+  if (propBoardMode) { renderBoardPropPanel(); return; }
+  var foot = document.querySelector('#proppanel .pfoot');
+  if (foot) foot.style.display = '';
   var list = propTargetList();
   if (!list.length) { closePropPanel(); return; }
   var multi = list.length > 1;
