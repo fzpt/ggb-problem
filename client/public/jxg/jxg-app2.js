@@ -150,6 +150,7 @@ function finishPolygon() {
   var el = board.create('polygon', polyPts.slice(), { name: nextId('poly') });
   tagPolygonBorders(el);
   trackId(el.id);
+  polyPts.forEach(function (p) { try { delete p._polyNew; } catch (e0) {} });
   polyPts = [];
   clearFlashes();
   setStatus('已创建多边形。', true);
@@ -1925,7 +1926,37 @@ board.on('down', function (e) {
         '已选 ' + polyPts.length + ' 个顶点，该点已是上一个顶点，换个位置或双击/点起点结束。';
       return;
     }
+    /* 点中已选顶点（非起点）→ 从待选顶点中删除，用于纠正误点；
+     * 该点若是本次专为多边形新建、且删除后无人引用，一并从画板移除 */
+    var existIdx = -1;
+    for (var pi = 1; pi < polyPts.length; pi++) {
+      if (polyPts[pi].id === rp.point.id) { existIdx = pi; break; }
+    }
+    if (existIdx > 0) {
+      var rmPt = polyPts.splice(existIdx, 1)[0];
+      var killPt = false;
+      try {
+        /* childElements 里含标签（TEXT），标签不算依赖 */
+        var hasDep = Object.keys(rmPt.childElements || {}).some(function (cid) {
+          var c = rmPt.childElements[cid];
+          return c && c.type !== JXG.OBJECT_TYPE_TEXT;
+        });
+        killPt = !!rmPt._polyNew && rmPt.elType === 'point' && !rmPt.fixed &&
+                 !hasDep;
+      } catch (eRm) {}
+      if (killPt) {
+        try { board.removeObject(rmPt); } catch (eRm2) {}
+        createdIds = createdIds.filter(function (id) { return id !== rmPt.id; });
+        selectedObjs = selectedObjs.filter(function (s) { return s.id !== rmPt.id; });
+        removeTrail(rmPt.id);
+      }
+      document.getElementById('hint').textContent =
+        '已删除该顶点' + (killPt ? '（点一并移除）' : '') +
+        '，还剩 ' + polyPts.length + ' 个顶点，继续点击；点起点或双击结束。';
+      return;
+    }
     polyPts.push(rp.point);
+    if (!rp.reused && !rp.isIntersection && !rp.isGlider) rp.point._polyNew = true;
     document.getElementById('hint').textContent =
       '已选 ' + polyPts.length + ' 个顶点' + (rp.reused || rp.isIntersection ? '（刚才' + reuseLabel(rp).slice(1, -1) + '）' : '') + '，继续点击；点起点或双击结束。';
   }
