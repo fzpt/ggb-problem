@@ -478,7 +478,24 @@ function boardGridOn() {
 }
 function setBoardGridVisible(v) {
   var g = boardGridEl();
-  if (g) { g.setAttribute({ visible: v }); board.update(); }
+  if (g) {
+    g.setAttribute({ visible: v });
+    /* JSXGraph 1.13 的 Grid 渲染器不检查可见性：只设 visProp 格线仍淡显在画面上，
+     * 必须同步隐藏渲染节点；缩放/平移重绘路径不会重置该 display（已实测） */
+    try { g.rendNode.style.display = v ? '' : 'none'; } catch (e) {}
+  }
+  /* JSXGraph 的 grid:true 是"双层"实现：grid 元素 + 两轴刻度 majorheight=-1 的全长线，
+   * 只关一层会残留淡线；刻度层随网格开关切回普通小刻度（6px），恢复时再变全长 */
+  for (var id in board.objects) {
+    var o = board.objects[id];
+    if (!o) continue;
+    if (o.elType === 'grid' && o !== g) {
+      try { o.rendNode.style.display = v ? '' : 'none'; } catch (e) {}
+    } else if (o.elType === 'ticks') {
+      o.setAttribute({ majorheight: v ? -1 : 6 });
+    }
+  }
+  board.update();
 }
 function setBoardAxesVisible(v) {
   boardAxisEls().forEach(function (a) { a.setAttribute({ visible: v }); });
