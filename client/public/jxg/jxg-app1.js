@@ -737,8 +737,15 @@ var lastPropRefresh = 0;
 function refreshPropDynamic() {
   var p = document.getElementById('proppanel');
   if (!p || p.style.display === 'none') return;
-  if (Array.isArray(propTarget)) return;   // 多选无定义/方程行，无需刷新
-  if (!propTarget || !board.objects[propTarget.id]) return;
+  if (Array.isArray(propTarget)) {
+    /* 多选：目标被删除（删除/级联/撤销）后过滤或关闭 */
+    var live = propTarget.filter(function (o) { return o && board.objects[o.id]; });
+    if (!live.length) { closePropPanel(); return; }
+    if (live.length !== propTarget.length) { propTarget = live; renderPropPanel(); }
+    return;   // 多选无定义/方程行，无需刷新
+  }
+  if (!propTarget) return;
+  if (!board.objects[propTarget.id]) { closePropPanel(); return; }
   var ae = document.activeElement;
   if (ae && ae.id === 'ppName') return;
   var d = document.getElementById('ppDef');
@@ -1489,6 +1496,7 @@ function selectSingle(o) {
   highlightOn(o);
   updateSelectHint();
   syncListSelection();
+  syncPropPanelToSelection();
 }
 function toggleSelect(o) {
   var idx = -1;
@@ -1497,6 +1505,22 @@ function toggleSelect(o) {
   else { selectedObjs.push(o); highlightOn(o); }
   updateSelectHint();
   syncListSelection();
+  syncPropPanelToSelection();
+}
+/* 属性面板跟随选择集：面板打开期间画板/列表里切换选中对象时，
+ * 面板同步改显新对象（单选→单对象，多选→共同样式）；
+ * 选择清空时保持当前目标（与 GeoGebra 一致）。 */
+function syncPropPanelToSelection() {
+  var p = document.getElementById('proppanel');
+  if (!p || p.style.display !== 'block') return;
+  var alive = selectedObjs.filter(function (o) { return o && board.objects[o.id]; });
+  if (!alive.length) return;
+  var cur = Array.isArray(propTarget) ? propTarget : (propTarget ? [propTarget] : []);
+  var same = cur.length === alive.length && cur.every(function (o) {
+    return alive.some(function (s) { return s.id === o.id; });
+  });
+  if (same) return;
+  openPropPanel(alive.length === 1 ? alive[0] : alive);
 }
 /* 对象列表行选中态同步：画板上选中/取消时，仅切换行 class，不重排列表 */
 function syncListSelection() {
