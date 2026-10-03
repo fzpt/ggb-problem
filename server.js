@@ -497,6 +497,11 @@ app.post('/api/knowledge-tags', requireAuth, (req, res, next) => {
 });
 
 // Serve built client in production
+/* 画板静态资源不缓存：避免浏览器/内嵌浏览器拿到旧版 jxg-app*.js，
+ * 导致修复已推送但页面仍跑旧代码 */
+app.use('/jxg', express.static(path.join(__dirname, 'client/dist/jxg'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-store')
+}));
 app.use(express.static(path.join(__dirname, 'client/dist')));
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
