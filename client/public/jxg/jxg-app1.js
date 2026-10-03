@@ -1021,7 +1021,7 @@ var lastListRefresh = 0;     // 对象列表节流刷新的时间戳
 })();
 
 /* ---------- 拖拽吸附网格 ---------- */
-var SNAP_PX = 6;   // 吸附阈值：点离最近网格点（整数坐标）≤ 该屏幕像素数就吸上
+var SNAP_PX = 6;   // 吸附阈值：点离最近格线交点 ≤ 该屏幕像素数就吸上
 var SNAP_CURVE_PX = 12;   // 贴线阈值：拖点时离曲线 ≤ 该屏幕像素数就优先贴到线上
 function snapThresholdPx() {
   /* 缩放很远、格子很密时阈值不能超过约 1/3 格，避免"永远在吸" */
@@ -1130,11 +1130,32 @@ function snapPointToGrid(pt) {
       return;
     }
   }
-  /* 2) 无近线才贴网格（原有逻辑） */
-  var gx = Math.round(pt.X()), gy = Math.round(pt.Y());
+  /* 2) 无近线才贴格点：只吸到图上有格线的交叉点（主格线间隔的整数倍），
+   * 不吸所有整数点；网格隐藏时不吸附 */
+  if (!boardGridOn()) return;
+  var step = gridMajorStep();
+  if (!(step > 0)) return;
+  var gx = Math.round(pt.X() / step) * step;
+  var gy = Math.round(pt.Y() / step) * step;
+  gx = Math.round(gx * 1e6) / 1e6;
+  gy = Math.round(gy * 1e6) / 1e6;
   var dx = (gx - pt.X()) * board.unitX, dy = (gy - pt.Y()) * board.unitY;
   var thr = snapThresholdPx();
   if (dx * dx + dy * dy <= thr * thr) pt.setPosition(JXG.COORDS_BY_USER, [gx, gy]);
+}
+/* 当前主格线间隔（用户单位）：取坐标轴刻度元素的 getDistanceMajorTicks，
+ * 与格线绘制同源（unifyGridTicks 已保证两轴同间隔），缩放后自动跟随变化 */
+function gridMajorStep() {
+  try {
+    for (var id in board.objects) {
+      var o = board.objects[id];
+      if (o && o.elType === 'ticks' && typeof o.getDistanceMajorTicks === 'function') {
+        var d = o.getDistanceMajorTicks();
+        if (d > 0) return d;
+      }
+    }
+  } catch (e) {}
+  return 1;
 }
 /* 拖拽中更新贴线候选高亮：只有真正的单点原生拖拽、且约束允许时才高亮；
  * 会形成依赖环的曲线不高亮（松手也不会加约束） */
