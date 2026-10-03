@@ -1387,7 +1387,13 @@ board.on('up', function () {
   var blankClick = (mode === 'select' && panState && !panState.moved && !blankDownAddKey);
   panState = null;
   rightPan = null;
-  if (blankClick) { clearSelection(); updateSelectHint(); }
+  if (blankClick) {
+    clearSelection();
+    updateSelectHint();
+    /* 属性面板激活时：从对象点到背景空白 → 面板同步切为背景属性 */
+    var pp0 = document.getElementById('proppanel');
+    if (pp0 && pp0.style.display === 'block' && !propBoardMode) openBoardPropPanel();
+  }
   var moved = (multiDrag && multiDrag.pushed) || (moveSel && moveSel.pushed);
   /* 单点原生拖拽：真移动了才把"按下时"的快照入栈（multiDrag/moveSel 已记的不重复记） */
   var singleMoved = false;
