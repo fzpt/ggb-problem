@@ -1122,6 +1122,26 @@ function enforceSquareGrid(anchor) {
     return r;
   };
 })();
+/* 统一两轴格线主间隔：JSXGraph 的自动间隔按"各轴边界盒跨度/6"取整，
+ * X/Y 跨度不同时会取成不同的整齐数（如 X 每 2 单位、Y 每 1 单位），
+ * 即使单位像素相等，格线也是矩形。这里按统一像素目标（120px）换算
+ * 一个两轴共用的 1/2/5×10^n 间隔，格线恒为正方形。 */
+(function unifyGridTicks() {
+  try {
+    var proto = JXG.Ticks && JXG.Ticks.prototype;
+    if (!proto || proto.__squareGridPatched) return;
+    proto.getDistanceMajorTicks = function () {
+      var b = this.board;
+      var u = Math.min(b.unitX, b.unitY);
+      if (!(u > 0)) return 1;
+      var raw = 120 / u;                 // 期望主间隔（用户单位）
+      var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+      var n = raw / mag;
+      return (n >= 5 ? 5 : n >= 2 ? 2 : 1) * mag;
+    };
+    proto.__squareGridPatched = true;
+  } catch (e) {}
+})();
 
 /* ---------- 画板窗口可拖动调整大小 ---------- */
 (function () {
