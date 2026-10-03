@@ -84,14 +84,37 @@ export default function JxgViewer() {
           setLog('导出 GGB 失败：' + d.error);
         } else if (d.base64) {
           const blob = base64ToBlob(d.base64, 'application/vnd.geogebra.file');
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${(activeProblemRef.current?.name || '图形').replace(/[\\/:*?"<>|]/g, '_')}.ggb`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          const suggested = `${(activeProblemRef.current?.name || '图形').replace(/[\\/:*?"<>|]/g, '_')}.ggb`;
+          const fallbackDownload = () => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = suggested;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          };
+          // 支持 File System Access API 的浏览器弹出"另存为"对话框，用户可选目录；
+          // 不支持或用户取消时回退为普通下载
+          if (window.showSaveFilePicker) {
+            (async () => {
+              try {
+                const handle = await window.showSaveFilePicker({
+                  suggestedName: suggested,
+                  types: [{ description: 'GeoGebra 文件', accept: { 'application/vnd.geogebra.file': ['.ggb'] } }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+              } catch (err) {
+                if (err && err.name === 'AbortError') { setLog('已取消导出。'); return; }
+                fallbackDownload();
+              }
+            })();
+          } else {
+            fallbackDownload();
+          }
           if (d.warnings?.length) setLog('GGB 已导出，注意：' + d.warnings.join('；'));
           else setLog('GGB 已导出。');
         }
