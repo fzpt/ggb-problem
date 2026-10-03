@@ -402,6 +402,9 @@ function objectToStepRaw(o) {
   if (dk === 'ellipse' || dk === 'hyperbola')
     return { type: dk, id: nm,
              f1: oname(o._conicIds[0]), f2: oname(o._conicIds[1]), p: oname(o._conicIds[2]) };
+  if (dk === 'conic')
+    return { type: 'conic', id: nm,
+             through5: o._conicIds.map(function (pid) { return oname(pid); }) };
   if (o.elType === 'circumcircle' || dk === 'circle3')
     return { type: 'circle', id: nm, through3: [oname(o.parents[0]), oname(o.parents[1]), oname(o.parents[2])] };
   if (o.elType === 'circle') {
@@ -568,6 +571,8 @@ function describeDefRaw(o) {
     return (o._defKind === 'ellipse' ? '椭圆 ' : '双曲线 ') + nm +
            '：焦点 ' + oname(o._conicIds[0]) + '、' + oname(o._conicIds[1]) +
            '，过点 ' + oname(o._conicIds[2]);
+  if (o._defKind === 'conic')
+    return '二次曲线 ' + nm + '：过 ' + o._conicIds.map(function (pid) { return oname(pid); }).join('、') + ' 五点';
   if (o._defKind === 'circle3' || o.elType === 'circumcircle')
     return '三点圆 ' + nm + '：过 ' + pname(o, 0) + '、' + pname(o, 1) + '、' + pname(o, 2);
   if (o._defKind === 'glider') {
@@ -1643,6 +1648,49 @@ board.on('down', function (e) {
     clearFlashes();
     setStatus('已创建抛物线' + noteP + '。', true);
     document.getElementById('hint').textContent = HINTS.parabola;
+  } else if (mode === 'conic') {
+    /* 五点二次曲线：依次点五个点，自动生成椭圆/双曲线/抛物线（类型自动判断） */
+    var rk = pickOrCreatePoint(x, y, sx, sy);
+    if (rk.reused) pendingReused = true;
+    if (rk.isIntersection) pendingInter = true;
+    pendingPts.push(rk.point);
+    if (pendingPts.length === 5) {
+      var k5p = pendingPts.slice();
+      pendingPts = [];
+      var seenK = {}, dupK = false;
+      k5p.forEach(function (p) { if (seenK[p.id]) dupK = true; seenK[p.id] = 1; });
+      if (dupK) {
+        setStatus('五点中有重复，请选择五个不同的点。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.conic;
+        return;
+      }
+      if (triArea(k5p[0], k5p[1], k5p[2]) < 1e-9 && triArea(k5p[2], k5p[3], k5p[4]) < 1e-9) {
+        setStatus('五点共线（退化），无法确定二次曲线，请重新选择。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.conic;
+        return;
+      }
+      var con;
+      try { con = board.create('conic', k5p, { name: nextId('k') }); }
+      catch (err) {
+        setStatus('无法创建二次曲线：' + err.message, false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.conic;
+        return;
+      }
+      con._defKind = 'conic';
+      con._conicIds = k5p.map(function (p) { return p.id; });
+      trackId(con.id);
+      var noteK = pendingInter ? '（含联动交点）' : (pendingReused ? '（复用了已有点）' : '');
+      pendingReused = false; pendingInter = false;
+      clearFlashes();
+      setStatus('已创建五点二次曲线' + noteK + '。', true);
+      document.getElementById('hint').textContent = HINTS.conic;
+    } else {
+      document.getElementById('hint').textContent =
+        '已选第 ' + pendingPts.length + ' 点' + reuseLabel(rk) + '，还需 ' + (5 - pendingPts.length) + ' 点。';
+    }
   } else if (mode === 'midpoint') {
     /* 中点：点击线段/多边形边直接取其中点；或依次点击两个已有点取其中点（不新建点） */
     var mp0 = findPointNear(sx, sy);
@@ -2313,6 +2361,24 @@ function createRegularPolygon(opts) {
         el = board.create('parabola', [pf, pd], { name: id });
         el._defKind = 'parabola';
         el._conicIds = [pf.id, pd.id];
+        break;
+      }
+      case 'conic': {
+        /* 五点确定的二次曲线：类型自动（椭圆/双曲线/抛物线） */
+        if (!Array.isArray(s.through5) || s.through5.length !== 5)
+          throw new Error('第 ' + (i + 1) + ' 步：conic 需要 through5（五个点）');
+        var k5 = s.through5.map(function (r) { return resolveRef(r, registry, i); });
+        var kIds = {};
+        for (var ki = 0; ki < 5; ki++) {
+          if (kIds[k5[ki].id])
+            throw new Error('第 ' + (i + 1) + ' 步：conic 的五个点不能重复');
+          kIds[k5[ki].id] = 1;
+        }
+        if (triArea(k5[0], k5[1], k5[2]) < 1e-9 && triArea(k5[2], k5[3], k5[4]) < 1e-9)
+          throw new Error('第 ' + (i + 1) + ' 步：conic 的五点接近共线（退化），无法确定二次曲线');
+        el = board.create('conic', k5, { name: id });
+        el._defKind = 'conic';
+        el._conicIds = k5.map(function (p) { return p.id; });
         break;
       }
       case 'circle': {

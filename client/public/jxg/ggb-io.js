@@ -108,6 +108,7 @@
         case 'ellipse': elCmd('Ellipse', [s.f1, s.f2, s.p], [s.id], 'conic', hid); break;
         case 'hyperbola': elCmd('Hyperbola', [s.f1, s.f2, s.p], [s.id], 'conic', hid); break;
         case 'parabola': elCmd('Parabola', [s.focus, s.directrix], [s.id], 'conic', hid); break;
+        case 'conic': elCmd('Conic', s.through5.slice(), [s.id], 'conic', hid); break;
         case 'polygon': elCmd('Polygon', s.points.slice(), [s.id], 'polygon', hid); break;
         case 'regularpolygon': {
           /* 需要实际坐标：算出 n 个顶点，导出为点 + Polygon 命令 */
@@ -454,6 +455,12 @@
           case 'Parabola':
             if (inp.length >= 2)
               pushStep({ type: 'parabola', focus: rid(inp[0]), directrix: rid(inp[1]) }, out0);
+            break;
+          case 'Conic':
+            if (inp.length >= 5)
+              pushStep({ type: 'conic',
+                         through5: [rid(inp[0]), rid(inp[1]), rid(inp[2]), rid(inp[3]), rid(inp[4])] }, out0);
+            else warnings.push('Conic 需要五个点参数，已跳过');
             break;
           case 'Polygon':
             if (inp.length >= 3) pushStep({ type: 'polygon', points: inp.map(rid) }, out0);

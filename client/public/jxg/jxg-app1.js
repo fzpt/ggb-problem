@@ -468,6 +468,10 @@ function stepToFormulaText(s) {
       return id + ' = Circle(' + s.center + ', ' + s.through + ')';
     case 'arc': return id + ' = Arc(' + s.center + ', ' + s.p1 + ', ' + s.p2 + ')';
     case 'arc3': return id + ' = 三点圆弧(' + s.through3.join(', ') + ')';
+    case 'ellipse': return id + ' = Ellipse(' + s.f1 + ', ' + s.f2 + ', ' + s.p + ')';
+    case 'hyperbola': return id + ' = Hyperbola(' + s.f1 + ', ' + s.f2 + ', ' + s.p + ')';
+    case 'parabola': return id + ' = Parabola(' + s.focus + ', ' + s.directrix + ')';
+    case 'conic': return id + ' = Conic(' + (s.through5 || []).join(', ') + ')';
     case 'polygon': return id + ' = Polygon(' + (s.points || []).join(', ') + ')';
     case 'regularpolygon':
       if (s.center !== undefined)
@@ -853,7 +857,7 @@ var histBundled = false;
 var COMPOSITE_BUNDLE_MODES = {
   segment: 1, line: 1, ray: 1, circle: 1,
   circle3: 1, arc: 1, arc3: 1, ngon: 1, polygon: 1,
-  ellipse: 1, hyperbola: 1, parabola: 1,
+  ellipse: 1, hyperbola: 1, parabola: 1, conic: 1,
   intersect: 1, midpoint: 1, perpendicular: 1, perpseg: 1,
   bisector: 1, incenter: 1, circumcenter: 1, orthocenter: 1,
   pline: 1, pray: 1, pseg: 1, psegfree: 1
@@ -928,7 +932,7 @@ function projectPointToCurve(px, py, cv) {
   if (!cv) return null;
   try {
     var et = cv.elType;
-    if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola') {
+    if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || et === 'conic') {
       /* 圆锥曲线没有初等最近点公式：沿参数曲线采样取最近采样点 */
       var smp = conicSamplePoints(cv), bq = null, bd = Infinity;
       for (var si = 0; si < smp.length; si++) {
@@ -1272,6 +1276,7 @@ var HINTS = {
   ellipse: '当前工具：椭圆 — 依次点击两个焦点，再点击椭圆上一点（可复用已有点/交点），生成以这两点为焦点的椭圆。',
   hyperbola: '当前工具：双曲线 — 依次点击两个焦点，再点击双曲线上一点（可复用已有点/交点），生成以这两点为焦点的双曲线。',
   parabola: '当前工具：抛物线 — 先点击焦点（可复用已有点/交点），再点击一条直线或线段作准线，生成抛物线。',
+  conic:    '当前工具：五点二次曲线 — 依次点击五个点（可复用已有点/交点；任三点不共线），自动生成椭圆/双曲线/抛物线（类型自动判断）。',
   intersect: '当前工具：交点 — 依次点击两条直线/线段/圆，自动生成联动的交点（图形移动时交点跟着动）。',
   midpoint: '当前工具：中点 — 进入前若已选中一条线段则直接取其中点，已选中一个点则再选一个已有点即可；或点击一条线段/多边形边直接取其中点（悬停会高亮其两端点）；或依次点击两个已有点，生成联动中点（端点移动时跟着动；不新建点）。',
   incenter: '当前工具：内心 — 依次点击三个点，生成三角形内心（顶点移动时联动，缺省名 O）。',
@@ -1609,6 +1614,7 @@ function describeObj(o) {
   if (o._defKind === 'ray') label = '射线';
   if (o._defKind === 'arc') label = '圆弧';
   if (o._defKind === 'arc3') label = '三点圆弧';
+  if (o._defKind === 'conic') label = '二次曲线';
   return label + ' ' + name;
 }
 /* 在屏幕坐标 (sx, sy) 附近找已有点，tol 为像素容差 */
@@ -1763,12 +1769,14 @@ function isCurve(o) {
   return o && (o.elType === 'segment' || o.elType === 'line' ||
                o.elType === 'circle' || o.elType === 'circumcircle' ||
                o.elType === 'arc' || o.elType === 'parabola' ||
-               o.elType === 'ellipse' || o.elType === 'hyperbola');
+               o.elType === 'ellipse' || o.elType === 'hyperbola' ||
+               o.elType === 'conic');
 }
 function curveLabel(o) {
   if (o._defKind === 'ray') return '射线';
   if (o._defKind === 'arc3') return '三点圆弧';
   if (o._defKind === 'arc' || o.elType === 'arc') return '圆弧';
+  if (o._defKind === 'conic') return '二次曲线';
   if (o._defKind === 'ellipse') return '椭圆';
   if (o._defKind === 'hyperbola') return '双曲线';
   if (o._defKind === 'parabola') return '抛物线';
@@ -1810,7 +1818,7 @@ function symCircleCenter(o) {
  * 这里用与找点一致的 14px，保证点中线（直线/线段/射线）或圆/圆弧时能生成落在对象上的约束点。 */
 function distToCurvePx(o, sx, sy) {
   var et = o.elType;
-  if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola') {
+  if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || et === 'conic') {
     var smp3 = conicSamplePoints(o), bd3 = Infinity;
     for (var si3 = 0; si3 < smp3.length; si3++) {
       var sp3 = toScreenPx(smp3[si3][0], smp3[si3][1]);
