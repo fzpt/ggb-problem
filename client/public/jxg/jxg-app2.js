@@ -1319,6 +1319,23 @@ board.on('down', function (e) {
   /* 框选工具：按住拖拽拉出虚线框；只有完全被框住的图形才会被选中 */
   if (mode === 'marquee') {
     var addKeyM = !!(e.shiftKey || e.ctrlKey || e.metaKey);
+    /* 按在当前圈选已选中的对象（或其定义点）上 → 整体移动选择集，不重新开始框选；
+     * 与选择模式同一套判定/搬运逻辑，框选-移动-再框选无需切工具 */
+    var mHit = findObjectAt(sx, sy, x, y);
+    var mOnSel = mHit && (isSelected(mHit) ||
+      (mHit.elementClass === JXG.OBJECT_CLASS_POINT &&
+       selectedObjs.some(function (o) { return definesPoint(o, mHit); })));
+    if (!addKeyM && mOnSel) {
+      panState = null;
+      startMoveSelection(sx, sy, findPointNear(sx, sy));
+      /* 按中非点对象（线段/圆/多边形…）：关闭原生拖拽，统一走 moveSel 手动整体移动，
+       * 否则被按中的对象跟手、其余选中对象冻结（多选位移不一致） */
+      if (moveSel && mHit.elementClass !== JXG.OBJECT_CLASS_POINT &&
+          board.mode === board.BOARD_MODE_DRAG) {
+        board.mode = board.BOARD_MODE_NONE;
+      }
+      return;
+    }
     /* 框选按下时关闭 JSXGraph 原生对象拖拽，避免框选顺带移动图元 */
     try { if (board.mode === board.BOARD_MODE_DRAG) board.mode = board.BOARD_MODE_NONE; } catch (eM) {}
     panState = null;
