@@ -90,6 +90,7 @@
         case 'arc3': elCmd('CircumcircularArc', s.through3.slice(), [s.id], 'conic', hid); break;
         case 'ellipse': elCmd('Ellipse', [s.f1, s.f2, s.p], [s.id], 'conic', hid); break;
         case 'hyperbola': elCmd('Hyperbola', [s.f1, s.f2, s.p], [s.id], 'conic', hid); break;
+        case 'parabola': elCmd('Parabola', [s.focus, s.directrix], [s.id], 'conic', hid); break;
         case 'polygon': elCmd('Polygon', s.points.slice(), [s.id], 'polygon', hid); break;
         case 'regularpolygon': {
           /* 需要实际坐标：算出 n 个顶点，导出为点 + Polygon 命令 */
@@ -297,7 +298,7 @@
         case 'Line': case 'Ray': case 'PerpendicularLine': case 'Parallel':
         case 'AngleBisector': case 'PerpendicularBisector': case 'FitLine': return 'line';
         case 'Circle': case 'CircularArc': case 'CircumcircularArc': case 'Semicircle':
-        case 'Ellipse': case 'Hyperbola': return 'conic';
+        case 'Ellipse': case 'Hyperbola': case 'Parabola': return 'conic';
         case 'Polygon': case 'RegularPolygon': case 'Triangle': return 'polygon';
         case 'Midpoint': case 'Intersect': case 'Point': case 'ClosestPoint':
         case 'Incenter': case 'Circumcenter': case 'Orthocenter': case 'Centroid': return 'point';
@@ -427,6 +428,10 @@
             if (inp.length >= 3)
               pushStep({ type: name === 'Ellipse' ? 'ellipse' : 'hyperbola',
                          f1: rid(inp[0]), f2: rid(inp[1]), p: rid(inp[2]) }, out0);
+            break;
+          case 'Parabola':
+            if (inp.length >= 2)
+              pushStep({ type: 'parabola', focus: rid(inp[0]), directrix: rid(inp[1]) }, out0);
             break;
           case 'Polygon':
             if (inp.length >= 3) pushStep({ type: 'polygon', points: inp.map(rid) }, out0);

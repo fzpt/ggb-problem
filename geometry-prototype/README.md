@@ -85,6 +85,7 @@ JSXGraph 1.13.3 库已内联打包（`vendor/` 下保留原始文件备查），
 | `arc` | `center`, `p1`, `p2` | 圆弧：圆心—弧起点—弧终点，逆时针绘制 |
 | `arc3` | `through3: [A, B, C]` | 三点圆弧：三点外接圆上依次经过 A→B→C 的圆弧（三点不共线、不重复） |
 | `ellipse` / `hyperbola` | `f1`, `f2`, `p` | 椭圆 / 双曲线：两焦点 `f1`/`f2` + 曲线上一点 `p`（三点不共线、不重复，焦点/曲线上点为 id 或 `[x,y]`） |
+| `parabola` | `focus`, `directrix` | 抛物线：焦点 `focus` + 准线 `directrix`（直线/线段 id，焦点不能在准线上） |
 | `polygon` | `points: [...]`（≥3） | 多边形，顶点为 id 或坐标 |
 | `midpoint` | `p1`, `p2` | 中点；点击线段/多边形边可直接取其中点（悬停高亮两端点；重复点击同一线段/点对会复用已存在的中点，不重复创建） |
 | `tricenter` | `kind: incenter\|circumcenter\|orthocenter`, `points: [A,B,C]` | 三角形内心 / 外心 / 垂心（顶点移动时联动；内心=边长加权平均，外心=外接圆圆心，垂心=欧拉关系 H=A+B+C−2O） |
