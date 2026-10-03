@@ -30,21 +30,36 @@
     var warnings = [];
     var autoN = 0;
     function auxId(prefix) { autoN += 1; return (prefix || 'aux') + '_' + autoN; }
+    /* 已发出的标签：GeoGebra 对重复 label 会直接打不开文件，导出时必须唯一化 */
+    var claimed = {};
+    function claimLabel(lb) {
+      lb = String(lb);
+      if (!claimed[lb]) { claimed[lb] = true; return lb; }
+      var k = 2, cand;
+      do { cand = lb + '_' + k; k++; } while (claimed[cand]);
+      claimed[cand] = true;
+      return cand;
+    }
     /* 步骤 id -> 步骤对象，供"参照线取定义点 / 多边形取顶点"等反查 */
     var byId = {};
     (steps || []).forEach(function (s) { if (s && s.id) byId[s.id] = s; });
 
     function elPoint(id, x, y, hidden) {
+      id = claimLabel(id);
       body.push('<element type="point" label="' + esc(id) + '">' +
         '<coords x="' + fmt(x) + '" y="' + fmt(y) + '" z="1"/>' +
         (hidden ? '<show object="false" label="false"/>' : '') +
         '</element>');
+      return id;
     }
     function elExpr(id, exp, hidden) {
+      id = claimLabel(id);
       body.push('<expression label="' + esc(id) + '" exp="' + esc(exp) + '"/>' +
         (hidden ? '<element type="point" label="' + esc(id) + '"><show object="false" label="false"/></element>' : ''));
+      return id;
     }
     function elCmd(name, inputs, outputs, outType, hidden) {
+      outputs = outputs.map(claimLabel);
       var s = '<command name="' + name + '">';
       inputs.forEach(function (v, i) { s += '<input a' + i + '="' + esc(v) + '"/>'; });
       outputs.forEach(function (v, i) { s += '<output a' + i + '="' + esc(v) + '"/>'; });
@@ -75,8 +90,10 @@
       var hid = (s.visible === false);
       switch (s.type) {
         case 'point':
-          if (s.on !== undefined) elCmd('Point', [s.on], [s.id], 'point', hid);
-          else if (Array.isArray(s.coords)) elPoint(s.id, s.coords[0], s.coords[1], hid);
+          /* 约束点优先按当前坐标导出自由点：GeoGebra 的 Point(曲线) 需要参数，
+           * 单参数命令无法重建，还会让文件打不开 */
+          if (Array.isArray(s.coords)) elPoint(s.id, s.coords[0], s.coords[1], hid);
+          else if (s.on !== undefined) elCmd('Point', [s.on], [s.id], 'point', hid);
           break;
         case 'segment': elCmd('Segment', [s.p1, s.p2], [s.id], 'segment', hid); break;
         case 'line': elCmd('Line', [s.p1, s.p2], [s.id], 'line', hid); break;
@@ -123,7 +140,12 @@
               verts.push([cx2 + R2 * Math.cos(th2), cy2 + R2 * Math.sin(th2)]);
             }
           }
+          /* 顶点 0/1 若本身就是已登记的点步骤（center 模式=vertex；两点模式=p1/p2），
+           * 直接按名字引用，不再重复发 element——否则 GeoGebra 会因重复 label 打不开文件 */
+          var existing = (s.center !== undefined) ? [s.vertex] : [s.p1, s.p2];
           var vids = verts.map(function (v, i) {
+            var en = existing[i];
+            if (en !== undefined && byId[en] && byId[en].type === 'point') return en;
             var vid = (i === 0 && SAFE_ID.test(String(s.vertex || s.p1 || ''))) ? String(s.vertex || s.p1) : auxId('v');
             elPoint(vid, v[0], v[1], false);
             return vid;
