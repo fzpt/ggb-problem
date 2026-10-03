@@ -1070,14 +1070,14 @@ function bisDirXY(V, A, B) {
   if (l < 1e-9) { dx = -v1y / l1; dy = v1x / l1; l = 1; }  /* 平角退化：取垂直方向 */
   return [V.X() + dx / l, V.Y() + dy / l];
 }
-/* 创建 ∠AVB 的角平分线（V 为顶点）：过 V 的无限直线，方向实时联动 */
+/* 创建 ∠AVB 的角平分线（V 为顶点）：从顶点出发的射线（<180° 内角的平分线），方向实时联动 */
 function createBisector(V, A, B, name, skipTrack) {
   var Q = board.create('point', [
     function () { var p = bisDirXY(V, A, B); return p[0]; },
     function () { var p = bisDirXY(V, A, B); return p[1]; }
   ], { name: '', visible: false, fixed: true, withLabel: false });
   Q._defKind = 'bishelp';
-  var el = board.create('line', [V, Q], { name: name || nextId('bl') });
+  var el = board.create('line', [V, Q], { name: name || nextId('bl'), straightFirst: false, straightLast: true });
   el._defKind = 'bisector';
   el._bisIds = [V.id, A.id, B.id];
   el._bisHelpId = Q.id;

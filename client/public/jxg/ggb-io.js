@@ -235,6 +235,8 @@
           break;
         }
         case 'mirrorpt': elCmd('Reflect', [s.of, s.axis], [s.id], 'point', hid); break;
+        /* 角平分线：GeoGebra 的 AngleBisector 输出整条直线，
+         * 导入器会将其映射回 bisector（射线）步骤，往返一致 */
         case 'bisector': elCmd('AngleBisector', [s.p1, s.vertex, s.p2], [s.id], 'line', hid); break;
         case 'perpseg': {
           var ln = auxId('ln'), cp = auxId('cp');

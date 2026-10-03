@@ -205,11 +205,18 @@ function collectMovers() {
       var per = (typeof o._period === 'number' && o._period > 0) ? o._period : TRACE_DEFAULT_PERIOD;
       var cv = board.objects[o._onId];
       /* 圆/三点圆：连续绕行（一周期 = 一圈）；线段/圆弧/直线/射线：往返 */
-      var loop = cv && (cv.elType === 'circle' || cv.elType === 'circumcircle');
+      /* 圆锥曲线（椭圆/双曲线/抛物线/五点二次曲线）：与圆一样连续绕行 */
+      var loop = cv && (cv.elType === 'circle' || cv.elType === 'circumcircle' || isConicEl(cv));
       ms.push({ el: o, period: per, phase0: (typeof o.position === 'number') ? o.position : 0, loop: !!loop });
     }
   });
   return ms;
+}
+/* 圆锥曲线判定：JSXGraph 中 ellipse/hyperbola/parabola/conic（五点二次曲线）元素
+ * 的 elType 都是 'curve'，不能按 elType 区分，统一按创建时打的 _defKind 标记识别 */
+function isConicEl(o) {
+  return o && (o._defKind === 'ellipse' || o._defKind === 'hyperbola' ||
+               o._defKind === 'parabola' || o._defKind === 'conic');
 }
 /* glider 在其曲线上参数 t（0..1）处的目标坐标 */
 function gliderTargetAt(gl, t) {
@@ -235,10 +242,21 @@ function gliderTargetAt(gl, t) {
       var aa = a1 + t * (a2 - a1);
       return [cc.X() + rr * Math.cos(aa), cc.Y() + rr * Math.sin(aa)];
     }
+    /* 圆锥曲线（椭圆/双曲线/抛物线/五点二次曲线）：参数采样一周，相邻采样点插值 */
+    if (isConicEl(cv)) {
+      var smp = conicSamplePoints(cv, 160);
+      if (smp.length < 2) return null;
+      var fi = t * smp.length;
+      var i0 = Math.floor(fi) % smp.length;
+      var i1 = (i0 + 1) % smp.length;
+      var fr = fi - Math.floor(fi);
+      return [smp[i0][0] + (smp[i1][0] - smp[i0][0]) * fr,
+              smp[i0][1] + (smp[i1][1] - smp[i0][1]) * fr];
+    }
     var A = cv.point1, B = cv.point2;
     if (!A || !B) return null;
     var ux = B.X() - A.X(), uy = B.Y() - A.Y();
-    if (cv._defKind === 'ray') return [A.X() + ux * t * 3, A.Y() + uy * t * 3];
+    if (cv._defKind === 'ray' || cv._defKind === 'bisector') return [A.X() + ux * t * 3, A.Y() + uy * t * 3];
     return [A.X() + ux * t, A.Y() + uy * t];
   } catch (e) { return null; }
 }
@@ -932,7 +950,7 @@ function projectPointToCurve(px, py, cv) {
   if (!cv) return null;
   try {
     var et = cv.elType;
-    if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || cv._defKind === 'conic') {
+    if (isConicEl(cv)) {
       /* 圆锥曲线没有初等最近点公式：沿参数曲线采样取最近采样点 */
       var smp = conicSamplePoints(cv), bq = null, bd = Infinity;
       for (var si = 0; si < smp.length; si++) {
@@ -950,7 +968,7 @@ function projectPointToCurve(px, py, cv) {
       if (L2 < 1e-12) return [ax, ay];
       var t = ((px - ax) * vx + (py - ay) * vy) / L2;
       if (et === 'segment') t = Math.max(0, Math.min(1, t));
-      else if (cv._defKind === 'ray') t = Math.max(0, t);
+      else if (cv._defKind === 'ray' || cv._defKind === 'bisector') t = Math.max(0, t);
       return [ax + vx * t, ay + vy * t];
     }
     if (et === 'circle' || et === 'circumcircle' || et === 'arc') {
@@ -1283,7 +1301,7 @@ var HINTS = {
   circumcenter: '当前工具：外心 — 依次点击三个点，生成三角形外心（顶点移动时联动，缺省名 O）。',
   orthocenter: '当前工具：垂心 — 依次点击三个点，生成三角形垂心（顶点移动时联动，缺省名 H）。',
   perpseg:  '当前工具：垂线段 — 先点击起点，再点击一条线段/多边形边（悬停会高亮其两端点，点击直接取两端为对边，不新建点；或依次点击对边两个点），生成该点到对边的垂线段；垂足若落在对边线段范围外，会自动连接垂足与对边两端点（拖动时联动）。',
-  bisector: '当前工具：角平分线 — 依次点击三个点（第 2 点为角顶点），生成 ∠ABC 的角平分线（顶点移动时联动）。',
+  bisector: '当前工具：角平分线 — 依次点击三个点（第 2 点为角顶点），生成 ∠ABC 小于 180° 内角的角平分线射线（从顶点出发，顶点移动时联动）。',
   pline:   '当前工具：过点平行直线 — 先点击一点，再点击一条线段/直线/射线作参照。',
   pray:    '当前工具：过点平行射线 — 先点击一点（作起点），再点击一条线段/直线/射线作参照，沿参照点1→点2方向作射线。',
   pseg:    '当前工具：过点等长平行线段 — 先点击一点（作起点），再点击一条线段/直线/射线作参照，作与参照等长的平行线段。',
@@ -1616,6 +1634,7 @@ function describeObj(o) {
   }
   var label = { segment: '线段', line: '直线', circle: '圆', circumcircle: '三点圆', polygon: '多边形', intersection: '交点', arc: '圆弧' }[o.elType] || o.elType || '图形';
   if (o._defKind === 'ray') label = '射线';
+  if (o._defKind === 'bisector') label = '角平分线';
   if (o._defKind === 'arc') label = '圆弧';
   if (o._defKind === 'arc3') label = '三点圆弧';
   if (o._defKind === 'conic') label = '二次曲线';
@@ -1772,13 +1791,11 @@ function collectDependents(rootId) {
 function isCurve(o) {
   return o && (o.elType === 'segment' || o.elType === 'line' ||
                o.elType === 'circle' || o.elType === 'circumcircle' ||
-               o.elType === 'arc' || o.elType === 'parabola' ||
-               o.elType === 'ellipse' || o.elType === 'hyperbola' ||
-               /* 五点二次曲线：JSXGraph 的 elType 是 'curve'（不是 'conic'），按 _defKind 认 */
-               o._defKind === 'conic');
+               o.elType === 'arc' || isConicEl(o));
 }
 function curveLabel(o) {
   if (o._defKind === 'ray') return '射线';
+  if (o._defKind === 'bisector') return '角平分线';
   if (o._defKind === 'arc3') return '三点圆弧';
   if (o._defKind === 'arc' || o.elType === 'arc') return '圆弧';
   if (o._defKind === 'conic') return '二次曲线';
@@ -1823,7 +1840,7 @@ function symCircleCenter(o) {
  * 这里用与找点一致的 14px，保证点中线（直线/线段/射线）或圆/圆弧时能生成落在对象上的约束点。 */
 function distToCurvePx(o, sx, sy) {
   var et = o.elType;
-  if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || o._defKind === 'conic') {
+  if (isConicEl(o)) {
     var smp3 = conicSamplePoints(o), bd3 = Infinity;
     for (var si3 = 0; si3 < smp3.length; si3++) {
       var sp3 = toScreenPx(smp3[si3][0], smp3[si3][1]);
