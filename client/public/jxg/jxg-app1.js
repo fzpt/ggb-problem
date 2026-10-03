@@ -242,16 +242,12 @@ function gliderTargetAt(gl, t) {
       var aa = a1 + t * (a2 - a1);
       return [cc.X() + rr * Math.cos(aa), cc.Y() + rr * Math.sin(aa)];
     }
-    /* 圆锥曲线（椭圆/双曲线/抛物线/五点二次曲线）：参数采样一周，相邻采样点插值 */
+    /* 圆锥曲线（椭圆/双曲线/抛物线/五点二次曲线）：视口范围截断采样折线，
+     * 按弧长匀速推进；双曲线跨渐近线段为 0 长瞬移，不会横穿画面 */
     if (isConicEl(cv)) {
-      var smp = conicSamplePoints(cv, 160);
-      if (smp.length < 2) return null;
-      var fi = t * smp.length;
-      var i0 = Math.floor(fi) % smp.length;
-      var i1 = (i0 + 1) % smp.length;
-      var fr = fi - Math.floor(fi);
-      return [smp[i0][0] + (smp[i1][0] - smp[i0][0]) * fr,
-              smp[i0][1] + (smp[i1][1] - smp[i0][1]) * fr];
+      var path = conicAnimPath(cv);
+      if (!path) return null;
+      return conicPathPointAt(path, t * path.total);
     }
     var A = cv.point1, B = cv.point2;
     if (!A || !B) return null;
@@ -1054,16 +1050,57 @@ function snapThresholdPx() {
  * 圆取径向投影；圆弧投影超出角度范围时取最近端点。投影失败返回 null。 */
 /* 椭圆/双曲线参数采样（用户坐标）：t 均匀取 [0,2π)，
  * 跳过非有限值与渐近线附近发散的超大坐标（双曲线在渐近线方向无界）。 */
-function conicSamplePoints(o, n) {
+function conicSamplePoints(o, n, bound) {
   var pts = [], N = n || 96, i, t, x, y;
+  var lim = (typeof bound === 'number' && bound > 0) ? bound : 1e4;
   for (i = 0; i < N; i++) {
     t = 2 * Math.PI * i / N;
     try { x = o.X(t); y = o.Y(t); } catch (e) { continue; }
     if (!isFinite(x) || !isFinite(y)) continue;
-    if (Math.abs(x) > 1e4 || Math.abs(y) > 1e4) continue;
+    if (Math.abs(x) > lim || Math.abs(y) > lim) continue;
     pts.push([x, y]);
   }
   return pts;
+}
+/* 圆锥曲线动画路径：在当前视口范围截断的采样折线（用户坐标）。
+ * 双曲线采样跨过渐近线时相邻点落在不同分支、距离超大：这类段记为 0 长"瞬移"，
+ * 动画沿折线按弧长匀速推进，瞬移点直接跳变（不横穿画面）；
+ * 椭圆等封闭曲线折线首尾自然闭合，无瞬移。 */
+function conicAnimPath(cv) {
+  try {
+    var bb = board.getBoundingBox();
+    var span = Math.max(bb[2] - bb[0], bb[1] - bb[3]);
+    if (!(span > 0)) return null;
+    var smp = conicSamplePoints(cv, 480, 1.5 * span);
+    if (smp.length < 2) return null;
+    var jump = 0.9 * span;   // 相邻采样间距超过该值：判定为跨渐近线瞬移段
+    var pts = smp, n = pts.length;
+    var cum = new Array(n + 1), total = 0, i, d;
+    cum[0] = 0;
+    for (i = 1; i < n; i++) {
+      d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      total += (d > jump) ? 0 : d;
+      cum[i] = total;
+    }
+    d = Math.hypot(pts[0][0] - pts[n - 1][0], pts[0][1] - pts[n - 1][1]);
+    total += (d > jump) ? 0 : d;
+    cum[n] = total;
+    return { pts: pts, cum: cum, total: total };
+  } catch (e) { return null; }
+}
+/* 折线上弧长 s 处的点（s 按总长取模；0 长瞬移段直接返回段终点） */
+function conicPathPointAt(path, s) {
+  var pts = path.pts, cum = path.cum, total = path.total, n = pts.length;
+  if (n === 0) return null;
+  if (n === 1 || !(total > 0)) return pts[0];
+  s = ((s % total) + total) % total;
+  var i = 0;
+  while (i < n - 1 && cum[i + 1] < s) i++;
+  var seg = cum[i + 1] - cum[i];
+  var a = pts[i], b = pts[(i + 1) % n];
+  if (seg <= 0) return b;
+  var f = (s - cum[i]) / seg;
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
 }
 function projectPointToCurve(px, py, cv) {
   if (!cv) return null;
