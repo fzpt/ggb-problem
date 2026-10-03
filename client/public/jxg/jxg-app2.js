@@ -14,11 +14,20 @@ document.addEventListener('keydown', function (e) {
   if (typeof READ_ONLY !== 'undefined' && READ_ONLY) return;   // 只读态禁用快捷键（工具/撤销重做）
   var t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  if (e.key === 'Escape') { closeToolFlyout(); resetParallel(); resetSym(); hideCtxMenu(); closePropPanel();
-    if (mode === 'perpseg' && pendingPts.length) { pendingPts = []; pendingReused = false; pendingInter = false;
-      clearFlashes(); perpSegHoverKey = null; document.getElementById('hint').textContent = HINTS.perpseg;
-      setStatus('已取消垂线段拾取。', true); }
-    return; }   // Esc：收起工具组展开面板，并取消进行中的平行/对称/垂线段拾取
+  if (e.key === 'Escape') {
+    closeToolFlyout(); resetParallel(); resetSym(); hideCtxMenu(); closePropPanel();
+    /* 构建过程中（多步拾取/多边形顶点/交点/平行/对称旋转/框选）按 Esc 取消当前构建，
+     * 停留在当前工具；无构建进行时 Esc 不动选择集 */
+    var busy = pendingPts.length || polyPts.length || pendingCurve ||
+               pendingParPoint !== null || symPending.length || !!symAxis ||
+               (typeof marqueeState !== 'undefined' && !!marqueeState) ||
+               (typeof symMarquee !== 'undefined' && !!symMarquee);
+    if (busy) {
+      setMode(mode);   // 同模式重入：清空一切拾取态/预览/框选/高亮，并复位提示
+      setStatus('已取消当前构建。', true);
+    }
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     var k = (e.key || '').toLowerCase();
     if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
