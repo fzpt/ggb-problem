@@ -178,6 +178,17 @@ function clearPolyPreview() {
 function updatePolyPreview(e) {
   if (!board || !polyPts) return;
   if (!polyPts.length) { clearPolyPreview(); return; }
+  /* 光标用户坐标：橡皮筋端点直接建在这里，避免"先落在原点再跳到光标"的闪帧 */
+  var ux = 0, uy = 0, hasC = false;
+  if (e) {
+    try {
+      var ce = getUsrCoords(e);
+      ux = ce.usrCoords[1]; uy = ce.usrCoords[2]; hasC = true;
+    } catch (e0) {}
+  }
+  /* 批量重建合并成一帧渲染，中间态（点到中心、旧闭合边残留等）不逐次上屏 */
+  board.suspendUpdate();
+  try {
   var needSegs = Math.max(0, polyPts.length - 1);
   if (!polyPreview || polyPreview.segs.length !== needSegs) {
     clearPolyPreview();
@@ -192,7 +203,7 @@ function updatePolyPreview(e) {
   }
   if (!polyPreview.rubber) {
     /* 橡皮筋末端用不可见自由点承载，移动时 setPosition 跟手 */
-    var ep = board.create('point', [0, 0], { visible: false, fixed: true });
+    var ep = board.create('point', [ux, uy], { visible: false, fixed: true });
     ep._polyPreview = true;
     polyPreview.rubber = board.create('segment', [polyPts[polyPts.length - 1], ep], {
       strokeColor: '#4a90d9', strokeWidth: 2, dash: 2, highlight: false, fixed: true
@@ -215,11 +226,13 @@ function updatePolyPreview(e) {
     parea._polyPreview = true;
     polyPreview.area = parea;
   }
-  if (e && polyPreview.rubberEnd) {
+  if (hasC && polyPreview.rubberEnd) {
     try {
-      var c = getUsrCoords(e);
-      polyPreview.rubberEnd.setPosition(JXG.COORDS_BY_USER, [c.usrCoords[1], c.usrCoords[2]]);
+      polyPreview.rubberEnd.setPosition(JXG.COORDS_BY_USER, [ux, uy]);
     } catch (e2) {}
+  }
+  } finally {
+    board.unsuspendUpdate();
   }
 }
 document.getElementById('clearBoard').addEventListener('click', function () {
