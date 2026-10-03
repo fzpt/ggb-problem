@@ -1100,6 +1100,22 @@ function enforceSquareGrid(anchor) {
     board.keepaspectratio = true;
   } catch (e) {}
 }
+/* 兜底保证：拦包 board.setBoundingBox，任何路径（滚轮/平移/容器缩放/
+ * 触摸捏合/内部 zoomIn 等）改完边界盒后都强制校正方形格线。
+ * 不逐处打点，新增缩放入口也自动覆盖。 */
+(function () {
+  var origSetBB = board.setBoundingBox.bind(board);
+  var enforcing = false;
+  board.setBoundingBox = function (bbox, keepaspect, update) {
+    var r = origSetBB(bbox, keepaspect, update);
+    if (!enforcing) {
+      enforcing = true;
+      try { enforceSquareGrid(); } catch (e) {}
+      enforcing = false;
+    }
+    return r;
+  };
+})();
 
 /* ---------- 画板窗口可拖动调整大小 ---------- */
 (function () {
