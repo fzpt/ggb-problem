@@ -164,11 +164,11 @@ function finishPolygon() {
  * 末顶点连回起点的闭合边（虚线），>=3 个顶点时填充内部区域。
  * 全部是临时对象（不进 createdIds / 对象列表 / 快照，不参与拾取），闭合建图或
  * 切换工具时由 clearPolyPreview 清除。 */
-var polyPreview = null;   // { segs:[], rubber, rubberEnd, closeSeg, area }
+var polyPreview = null;   // { segs:[], rubber, rubberEnd, area }
 function clearPolyPreview() {
   if (!polyPreview) return;
   try { polyPreview.segs.forEach(function (s) { board.removeObject(s); }); } catch (e) {}
-  ['rubber', 'rubberEnd', 'closeSeg', 'area'].forEach(function (k) {
+  ['rubber', 'rubberEnd', 'area'].forEach(function (k) {
     var o = polyPreview[k];
     if (o) { try { board.removeObject(o); } catch (e) {} }
   });
@@ -192,7 +192,7 @@ function updatePolyPreview(e) {
   var needSegs = Math.max(0, polyPts.length - 1);
   if (!polyPreview || polyPreview.segs.length !== needSegs) {
     clearPolyPreview();
-    polyPreview = { segs: [], rubber: null, rubberEnd: null, closeSeg: null, area: null };
+    polyPreview = { segs: [], rubber: null, rubberEnd: null, area: null };
     for (var i = 0; i < needSegs; i++) {
       var pseg = board.create('segment', [polyPts[i], polyPts[i + 1]], {
         strokeColor: '#4a90d9', strokeWidth: 2, highlight: false, fixed: true
@@ -210,12 +210,6 @@ function updatePolyPreview(e) {
     });
     polyPreview.rubber._polyPreview = true;
     polyPreview.rubberEnd = ep;
-  }
-  if (polyPts.length >= 2 && !polyPreview.closeSeg) {
-    polyPreview.closeSeg = board.create('segment', [polyPts[polyPts.length - 1], polyPts[0]], {
-      strokeColor: '#4a90d9', strokeWidth: 2, dash: 2, highlight: false, fixed: true
-    });
-    polyPreview.closeSeg._polyPreview = true;
   }
   if (polyPts.length >= 3 && !polyPreview.area) {
     var parea = board.create('polygon', polyPts.slice(), {
