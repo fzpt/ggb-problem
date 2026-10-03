@@ -71,6 +71,7 @@ function setMode(m) {
   cancelSymMarquee();
   cancelMarquee();   // 切换工具时取消未完成的框选
   panState = null;
+  clearPolyPreview();   // 离开多边形工具时清掉进行中的边/填充预览
   candHighlightOff();
   clearFlashes();
   perpSegHoverKey = null;
@@ -152,9 +153,74 @@ function finishPolygon() {
   trackId(el.id);
   polyPts.forEach(function (p) { try { delete p._polyNew; } catch (e0) {} });
   polyPts = [];
+  clearPolyPreview();   // 预览边/填充被正式多边形取代
   clearFlashes();
   setStatus('已创建多边形。', true);
   document.getElementById('hint').textContent = HINTS.polygon;
+}
+
+/* ---------- 多边形创建实时预览 ----------
+ * 过程中直接画出：已选顶点之间的边（实线）、末顶点到光标的橡皮筋（虚线）、
+ * 末顶点连回起点的闭合边（虚线），>=3 个顶点时填充内部区域。
+ * 全部是临时对象（不进 createdIds / 对象列表 / 快照，不参与拾取），闭合建图或
+ * 切换工具时由 clearPolyPreview 清除。 */
+var polyPreview = null;   // { segs:[], rubber, rubberEnd, closeSeg, area }
+function clearPolyPreview() {
+  if (!polyPreview) return;
+  try { polyPreview.segs.forEach(function (s) { board.removeObject(s); }); } catch (e) {}
+  ['rubber', 'rubberEnd', 'closeSeg', 'area'].forEach(function (k) {
+    var o = polyPreview[k];
+    if (o) { try { board.removeObject(o); } catch (e) {} }
+  });
+  polyPreview = null;
+}
+/* 顶点集合变化（增/删顶点）后调用：整体重建；鼠标移动时调用：只挪橡皮筋端点 */
+function updatePolyPreview(e) {
+  if (!board || !polyPts) return;
+  if (!polyPts.length) { clearPolyPreview(); return; }
+  var needSegs = Math.max(0, polyPts.length - 1);
+  if (!polyPreview || polyPreview.segs.length !== needSegs) {
+    clearPolyPreview();
+    polyPreview = { segs: [], rubber: null, rubberEnd: null, closeSeg: null, area: null };
+    for (var i = 0; i < needSegs; i++) {
+      var pseg = board.create('segment', [polyPts[i], polyPts[i + 1]], {
+        strokeColor: '#4a90d9', strokeWidth: 2, highlight: false, fixed: true
+      });
+      pseg._polyPreview = true;   // 标记打在元素上（属性对象不会挂到元素）
+      polyPreview.segs.push(pseg);
+    }
+  }
+  if (!polyPreview.rubber) {
+    /* 橡皮筋末端用不可见自由点承载，移动时 setPosition 跟手 */
+    var ep = board.create('point', [0, 0], { visible: false, fixed: true });
+    ep._polyPreview = true;
+    polyPreview.rubber = board.create('segment', [polyPts[polyPts.length - 1], ep], {
+      strokeColor: '#4a90d9', strokeWidth: 2, dash: 2, highlight: false, fixed: true
+    });
+    polyPreview.rubber._polyPreview = true;
+    polyPreview.rubberEnd = ep;
+  }
+  if (polyPts.length >= 2 && !polyPreview.closeSeg) {
+    polyPreview.closeSeg = board.create('segment', [polyPts[polyPts.length - 1], polyPts[0]], {
+      strokeColor: '#4a90d9', strokeWidth: 2, dash: 2, highlight: false, fixed: true
+    });
+    polyPreview.closeSeg._polyPreview = true;
+  }
+  if (polyPts.length >= 3 && !polyPreview.area) {
+    var parea = board.create('polygon', polyPts.slice(), {
+      withLines: false, fillColor: '#4a90d9', fillOpacity: 0.15,
+      highlightFillColor: '#4a90d9', highlightFillOpacity: 0.15,
+      highlight: false
+    });
+    parea._polyPreview = true;
+    polyPreview.area = parea;
+  }
+  if (e && polyPreview.rubberEnd) {
+    try {
+      var c = getUsrCoords(e);
+      polyPreview.rubberEnd.setPosition(JXG.COORDS_BY_USER, [c.usrCoords[1], c.usrCoords[2]]);
+    } catch (e2) {}
+  }
 }
 document.getElementById('clearBoard').addEventListener('click', function () {
   pushHistory();   // 先记快照，支持撤销清空
@@ -182,6 +248,7 @@ function clearUserObjects() {
   if (!suppressHistory) refreshObjectList();
   pendingPts = [];
   polyPts = [];
+  clearPolyPreview();
   autoN = 0;
 }
 
@@ -1936,10 +2003,10 @@ board.on('down', function (e) {
       var rmPt = polyPts.splice(existIdx, 1)[0];
       var killPt = false;
       try {
-        /* childElements 里含标签（TEXT），标签不算依赖 */
+        /* childElements 里含标签（TEXT）和多边形预览对象，都不算依赖 */
         var hasDep = Object.keys(rmPt.childElements || {}).some(function (cid) {
           var c = rmPt.childElements[cid];
-          return c && c.type !== JXG.OBJECT_TYPE_TEXT;
+          return c && c.type !== JXG.OBJECT_TYPE_TEXT && !c._polyPreview;
         });
         killPt = !!rmPt._polyNew && rmPt.elType === 'point' && !rmPt.fixed &&
                  !hasDep;
@@ -1953,10 +2020,12 @@ board.on('down', function (e) {
       document.getElementById('hint').textContent =
         '已删除该顶点' + (killPt ? '（点一并移除）' : '') +
         '，还剩 ' + polyPts.length + ' 个顶点，继续点击；点起点或双击结束。';
+      updatePolyPreview(e);
       return;
     }
     polyPts.push(rp.point);
     if (!rp.reused && !rp.isIntersection && !rp.isGlider) rp.point._polyNew = true;
+    updatePolyPreview(e);
     document.getElementById('hint').textContent =
       '已选 ' + polyPts.length + ' 个顶点' + (rp.reused || rp.isIntersection ? '（刚才' + reuseLabel(rp).slice(1, -1) + '）' : '') + '，继续点击；点起点或双击结束。';
   }

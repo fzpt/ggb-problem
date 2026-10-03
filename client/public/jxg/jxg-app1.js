@@ -1197,6 +1197,11 @@ board.on('move', function (e) {
     var absPosM2 = JXG.getPosition(e);
     midpointHover(absPosM2[0] - cPosM2[0], absPosM2[1] - cPosM2[1]);
   }
+  /* 多边形工具：橡皮筋（末顶点到光标）跟手；拾取/删除顶点后由 app2 重建预览 */
+  if (mode === 'polygon' && typeof polyPts !== 'undefined' && polyPts.length &&
+      typeof updatePolyPreview === 'function') {
+    updatePolyPreview(e);
+  }
     if (mode !== 'select' && !(typeof READ_ONLY !== 'undefined' && READ_ONLY)) return;
   var cPos = board.getCoordsTopLeftCorner(e);
   var absPos = JXG.getPosition(e);
