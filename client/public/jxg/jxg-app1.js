@@ -853,6 +853,7 @@ var histBundled = false;
 var COMPOSITE_BUNDLE_MODES = {
   segment: 1, line: 1, ray: 1, circle: 1,
   circle3: 1, arc: 1, arc3: 1, ngon: 1, polygon: 1,
+  ellipse: 1, hyperbola: 1,
   intersect: 1, midpoint: 1, perpendicular: 1, perpseg: 1,
   bisector: 1, incenter: 1, circumcenter: 1, orthocenter: 1,
   pline: 1, pray: 1, pseg: 1, psegfree: 1
@@ -910,10 +911,32 @@ function snapThresholdPx() {
 /* 把用户坐标点 (px,py) 投影到曲线 cv 上的最近点（用户坐标）。
  * 线段取线段内最近点；直线取无限直线垂足；射线只取正向（含起点）；
  * 圆取径向投影；圆弧投影超出角度范围时取最近端点。投影失败返回 null。 */
+/* 椭圆/双曲线参数采样（用户坐标）：t 均匀取 [0,2π)，
+ * 跳过非有限值与渐近线附近发散的超大坐标（双曲线在渐近线方向无界）。 */
+function conicSamplePoints(o, n) {
+  var pts = [], N = n || 96, i, t, x, y;
+  for (i = 0; i < N; i++) {
+    t = 2 * Math.PI * i / N;
+    try { x = o.X(t); y = o.Y(t); } catch (e) { continue; }
+    if (!isFinite(x) || !isFinite(y)) continue;
+    if (Math.abs(x) > 1e4 || Math.abs(y) > 1e4) continue;
+    pts.push([x, y]);
+  }
+  return pts;
+}
 function projectPointToCurve(px, py, cv) {
   if (!cv) return null;
   try {
     var et = cv.elType;
+    if (et === 'ellipse' || et === 'hyperbola') {
+      /* 圆锥曲线没有初等最近点公式：沿参数曲线采样取最近采样点 */
+      var smp = conicSamplePoints(cv), bq = null, bd = Infinity;
+      for (var si = 0; si < smp.length; si++) {
+        var dd2 = (smp[si][0] - px) * (smp[si][0] - px) + (smp[si][1] - py) * (smp[si][1] - py);
+        if (dd2 < bd) { bd = dd2; bq = smp[si]; }
+      }
+      return bq;
+    }
     if (et === 'segment' || et === 'line') {
       var A = cv.point1, B = cv.point2;
       if (!A || !B) return null;
@@ -1246,6 +1269,8 @@ var HINTS = {
   circle3: '当前工具：三点圆 — 依次点击三个不共线的点（可复用已有点/交点），生成三点确定的圆。',
   arc:     '当前工具：圆弧 — 先点圆心，再依次点弧的起点和终点（可复用已有点/交点）。',
   arc3:    '当前工具：三点圆弧 — 依次点击三个不共线的点（可复用已有点/交点），生成三点外接圆上依次经过这三点的圆弧。',
+  ellipse: '当前工具：椭圆 — 依次点击两个焦点，再点击椭圆上一点（可复用已有点/交点），生成以这两点为焦点的椭圆。',
+  hyperbola: '当前工具：双曲线 — 依次点击两个焦点，再点击双曲线上一点（可复用已有点/交点），生成以这两点为焦点的双曲线。',
   intersect: '当前工具：交点 — 依次点击两条直线/线段/圆，自动生成联动的交点（图形移动时交点跟着动）。',
   midpoint: '当前工具：中点 — 进入前若已选中一条线段则直接取其中点，已选中一个点则再选一个已有点即可；或点击一条线段/多边形边直接取其中点（悬停会高亮其两端点）；或依次点击两个已有点，生成联动中点（端点移动时跟着动；不新建点）。',
   incenter: '当前工具：内心 — 依次点击三个点，生成三角形内心（顶点移动时联动，缺省名 O）。',
@@ -1687,6 +1712,12 @@ function collectDependents(rootId) {
           if (doomed[o._arc3pts[i]]) { doomed[id] = true; changed = true; break; }
         }
       }
+      /* 椭圆/双曲线：焦点/曲线上点记在 _conicIds 里，显式检查 */
+      if (o._conicIds) {
+        for (var ci = 0; ci < o._conicIds.length; ci++) {
+          if (doomed[o._conicIds[ci]]) { doomed[id] = true; changed = true; break; }
+        }
+      }
       /* 多边形边上的交点：边不是独立登记对象，ancestors 覆盖不到多边形，需显式检查 */
       if (o._polyEdge && doomed[o._polyEdge.polyId]) { doomed[id] = true; changed = true; }
       /* 过点平行线：隐藏方向点未登记，ancestors 覆盖不到过点/参照线，需显式检查 */
@@ -1730,12 +1761,15 @@ function collectDependents(rootId) {
 function isCurve(o) {
   return o && (o.elType === 'segment' || o.elType === 'line' ||
                o.elType === 'circle' || o.elType === 'circumcircle' ||
-               o.elType === 'arc');
+               o.elType === 'arc' ||
+               o.elType === 'ellipse' || o.elType === 'hyperbola');
 }
 function curveLabel(o) {
   if (o._defKind === 'ray') return '射线';
   if (o._defKind === 'arc3') return '三点圆弧';
   if (o._defKind === 'arc' || o.elType === 'arc') return '圆弧';
+  if (o._defKind === 'ellipse') return '椭圆';
+  if (o._defKind === 'hyperbola') return '双曲线';
   return { segment: '线段', line: '直线', circle: '圆', circumcircle: '圆' }[o.elType] || '线';
 }
 /* 用户坐标 → 屏幕像素 */
@@ -1774,6 +1808,15 @@ function symCircleCenter(o) {
  * 这里用与找点一致的 14px，保证点中线（直线/线段/射线）或圆/圆弧时能生成落在对象上的约束点。 */
 function distToCurvePx(o, sx, sy) {
   var et = o.elType;
+  if (et === 'ellipse' || et === 'hyperbola') {
+    var smp3 = conicSamplePoints(o), bd3 = Infinity;
+    for (var si3 = 0; si3 < smp3.length; si3++) {
+      var sp3 = toScreenPx(smp3[si3][0], smp3[si3][1]);
+      var dd3 = Math.hypot(sp3[0] - sx, sp3[1] - sy);
+      if (dd3 < bd3) bd3 = dd3;
+    }
+    return bd3;
+  }
   if (et === 'segment' || et === 'line') {
     if (!o.point1 || !o.point2) return Infinity;
     var A = toScreenPx(o.point1.X(), o.point1.Y()), B = toScreenPx(o.point2.X(), o.point2.Y());

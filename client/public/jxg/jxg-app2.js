@@ -396,6 +396,9 @@ function objectToStepRaw(o) {
                vertex: oname(o._bisIds[0]), p1: oname(o._bisIds[1]), p2: oname(o._bisIds[2]) };
     return { type: 'line', id: nm, p1: oname(o.parents[0]), p2: oname(o.parents[1]) };
   }
+  if (dk === 'ellipse' || dk === 'hyperbola')
+    return { type: dk, id: nm,
+             f1: oname(o._conicIds[0]), f2: oname(o._conicIds[1]), p: oname(o._conicIds[2]) };
   if (o.elType === 'circumcircle' || dk === 'circle3')
     return { type: 'circle', id: nm, through3: [oname(o.parents[0]), oname(o.parents[1]), oname(o.parents[2])] };
   if (o.elType === 'circle') {
@@ -555,6 +558,10 @@ function describeDefRaw(o) {
     return '垂线 ' + nm + '：过 ' + pname(o, 1) + ' 垂直于 ' + pname(o, 0);
   if (o._defKind === 'footpoint')
     return '垂足 ' + nm + '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
+  if (o._defKind === 'ellipse' || o._defKind === 'hyperbola')
+    return (o._defKind === 'ellipse' ? '椭圆 ' : '双曲线 ') + nm +
+           '：焦点 ' + oname(o._conicIds[0]) + '、' + oname(o._conicIds[1]) +
+           '，过点 ' + oname(o._conicIds[2]);
   if (o._defKind === 'circle3' || o.elType === 'circumcircle')
     return '三点圆 ' + nm + '：过 ' + pname(o, 0) + '、' + pname(o, 1) + '、' + pname(o, 2);
   if (o._defKind === 'glider') {
@@ -850,7 +857,7 @@ document.getElementById('objlist').addEventListener('dblclick', function (e) {
 function renameRefsInStep(s, oldN, newN) {
   var c = {};
   for (var k in s) c[k] = s[k];
-  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex'].forEach(function (k) {
+  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex', 'f1', 'f2', 'p'].forEach(function (k) {
     if (c[k] === oldN) c[k] = newN;
   });
   if (c.mirror) {  // 注意深拷贝：原实现是浅拷贝，直接改会污染原步骤
@@ -1544,6 +1551,49 @@ board.on('down', function (e) {
       document.getElementById('hint').textContent =
         '已选第 ' + pendingPts.length + ' 点' + reuseLabel(r3) + '，还需 ' + (3 - pendingPts.length) + ' 点。';
     }
+  } else if (mode === 'ellipse' || mode === 'hyperbola') {
+    /* 椭圆/双曲线：依次点两个焦点，再点曲线上一点（焦点/曲线上点可复用已有点/交点） */
+    var rC = pickOrCreatePoint(x, y, sx, sy);
+    if (rC.reused) pendingReused = true;
+    if (rC.isIntersection) pendingInter = true;
+    pendingPts.push(rC.point);
+    if (pendingPts.length === 3) {
+      var f1 = pendingPts[0], f2 = pendingPts[1], pc = pendingPts[2];
+      pendingPts = [];
+      var cname = mode === 'ellipse' ? '椭圆' : '双曲线';
+      if (f1.id === f2.id || f1.id === pc.id || f2.id === pc.id) {
+        setStatus('三点中有重复，请选择两个焦点和曲线上一个不同的点。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS[mode];
+        return;
+      }
+      if (triArea(f1, f2, pc) < 1e-9) {
+        setStatus('三点共线，无法确定' + cname + '，请重新选择。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS[mode];
+        return;
+      }
+      var con;
+      try { con = board.create(mode, [f1, f2, pc], { name: nextId(mode === 'ellipse' ? 'e' : 'h') }); }
+      catch (err) {
+        setStatus('无法创建' + cname + '：' + err.message, false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS[mode];
+        return;
+      }
+      con._defKind = mode;
+      con._conicIds = [f1.id, f2.id, pc.id];
+      trackId(con.id);
+      var noteC = pendingInter ? '（含联动交点）' : (pendingReused ? '（复用了已有点）' : '');
+      pendingReused = false; pendingInter = false;
+      clearFlashes();
+      setStatus('已创建' + cname + noteC + '。', true);
+      document.getElementById('hint').textContent = HINTS[mode];
+    } else {
+      document.getElementById('hint').textContent =
+        (pendingPts.length === 1 ? '已选第一个焦点' : '已选第二个焦点') + reuseLabel(rC) +
+        '，再点击' + (pendingPts.length === 1 ? '第二个焦点' : (mode === 'ellipse' ? '椭圆上一点' : '双曲线上一点')) + '。';
+    }
   } else if (mode === 'midpoint') {
     /* 中点：点击线段/多边形边直接取其中点；或依次点击两个已有点取其中点（不新建点） */
     var mp0 = findPointNear(sx, sy);
@@ -2186,6 +2236,22 @@ function createRegularPolygon(opts) {
         if (triArea(tA, tB, tC) < 1e-9)
           throw new Error('第 ' + (i + 1) + ' 步：arc3 的三点共线，无法确定圆弧');
         el = createArc3(tA, tB, tC, id);
+        break;
+      }
+      case 'ellipse':
+      case 'hyperbola': {
+        if (s.f1 === undefined || s.f2 === undefined || s.p === undefined)
+          throw new Error('第 ' + (i + 1) + ' 步：' + s.type + ' 需要 f1, f2, p（两个焦点 + 曲线上一点）');
+        var cf1 = resolveRef(s.f1, registry, i),
+            cf2 = resolveRef(s.f2, registry, i),
+            cp = resolveRef(s.p, registry, i);
+        if (cf1.id === cf2.id || cf1.id === cp.id || cf2.id === cp.id)
+          throw new Error('第 ' + (i + 1) + ' 步：' + s.type + ' 的三个点不能重复');
+        if (triArea(cf1, cf2, cp) < 1e-9)
+          throw new Error('第 ' + (i + 1) + ' 步：' + s.type + ' 的三点共线，无法确定曲线');
+        el = board.create(s.type, [cf1, cf2, cp], { name: id });
+        el._defKind = s.type;
+        el._conicIds = [cf1.id, cf2.id, cp.id];
         break;
       }
       case 'circle': {
