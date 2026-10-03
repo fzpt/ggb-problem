@@ -182,6 +182,15 @@ function migrateLegacyUsers() {
     .get();
   if (marker) return;
 
+  // Fresh installs never had the legacy `users` table; skip gracefully.
+  const legacyTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    .get();
+  if (!legacyTable) {
+    db.prepare('INSERT INTO _migration_legacy_users_copied (done) VALUES (1)').run();
+    return;
+  }
+
   const legacyUsers = db.prepare('SELECT * FROM users').all();
   if (!legacyUsers || legacyUsers.length === 0) {
     db.prepare('INSERT INTO _migration_legacy_users_copied (done) VALUES (1)').run();
