@@ -1335,7 +1335,11 @@ var singleDrag = null;  // 单点原生拖拽：按下命中点时存"拖拽前"
 function highlightOn(o) {
   o._selBackup = saveVis(o);
   try {
-    o.setAttribute({ strokeColor: '#ff3b30', fillColor: '#ff3b30' });
+    /* 曲线类（二次曲线/椭圆/双曲线/抛物线/圆弧等）选中只标红边缘，
+     * 不改填充色——否则会把整片覆盖区域标红 */
+    var attrs = { strokeColor: '#ff3b30' };
+    if (o.elementClass !== JXG.OBJECT_CLASS_CURVE) attrs.fillColor = '#ff3b30';
+    o.setAttribute(attrs);
     if (o.elementClass === JXG.OBJECT_CLASS_POINT) o.setAttribute({ size: 7 });
     else o.setAttribute({ strokeWidth: 5 });
   } catch (e) {}
