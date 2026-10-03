@@ -932,7 +932,7 @@ function projectPointToCurve(px, py, cv) {
   if (!cv) return null;
   try {
     var et = cv.elType;
-    if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || et === 'conic') {
+    if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || cv._defKind === 'conic') {
       /* 圆锥曲线没有初等最近点公式：沿参数曲线采样取最近采样点 */
       var smp = conicSamplePoints(cv), bq = null, bd = Infinity;
       for (var si = 0; si < smp.length; si++) {
@@ -1770,7 +1770,8 @@ function isCurve(o) {
                o.elType === 'circle' || o.elType === 'circumcircle' ||
                o.elType === 'arc' || o.elType === 'parabola' ||
                o.elType === 'ellipse' || o.elType === 'hyperbola' ||
-               o.elType === 'conic');
+               /* 五点二次曲线：JSXGraph 的 elType 是 'curve'（不是 'conic'），按 _defKind 认 */
+               o._defKind === 'conic');
 }
 function curveLabel(o) {
   if (o._defKind === 'ray') return '射线';
@@ -1818,7 +1819,7 @@ function symCircleCenter(o) {
  * 这里用与找点一致的 14px，保证点中线（直线/线段/射线）或圆/圆弧时能生成落在对象上的约束点。 */
 function distToCurvePx(o, sx, sy) {
   var et = o.elType;
-  if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || et === 'conic') {
+  if (et === 'ellipse' || et === 'hyperbola' || et === 'parabola' || o._defKind === 'conic') {
     var smp3 = conicSamplePoints(o), bd3 = Infinity;
     for (var si3 = 0; si3 < smp3.length; si3++) {
       var sp3 = toScreenPx(smp3[si3][0], smp3[si3][1]);
