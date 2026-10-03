@@ -2219,7 +2219,7 @@ function createRegularPolygon(opts) {
           el = board.create('glider', [s.coords[0], s.coords[1], cv], { name: id });
           el._defKind = 'glider';
           el._onId = cv.id;
-          applyDrivenGray(el);
+          applyGliderColor(el);
         } else {
           el = board.create('point', s.coords, { name: id });
         }

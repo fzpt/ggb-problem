@@ -1234,7 +1234,7 @@ function maybeConstrainOnRelease(pt, pre) {
   try { pt.makeGlider(cv); } catch (e) { return false; }
   pt._defKind = 'glider';
   pt._onId = cv.id;
-  try { applyDrivenGray(pt); } catch (e) {}
+  try { applyGliderColor(pt); } catch (e) {}
   try { board.update(); } catch (e) {}
   /* 拖动 + 约束合并为一步撤销：用按下时的快照 */
   try { pushPreDragHistory(pre); } catch (e) {}
@@ -1391,6 +1391,11 @@ function candHighlightOff() {
 /* 从动点（交点 / 中点 / 垂足 / 三角形中心 / 曲线约束点 / 对称点 / 平行线段远端）
    统一显示为灰色，自由点保持默认色；高亮/闪烁走 saveVis 备份恢复，不受影响 */
 var DRIVEN_GRAY = '#8e8e93';
+/* 约束在曲线上的点（glider）统一显示为蓝色，与自由点（橙）、完全从动点（灰）区分 */
+var GLIDER_BLUE = '#0072B2';
+function applyGliderColor(o) {
+  try { o.setAttribute({ strokeColor: GLIDER_BLUE, fillColor: GLIDER_BLUE }); } catch (e) {}
+}
 function isDrivenPoint(o) {
   if (!o || o.elementClass !== JXG.OBJECT_CLASS_POINT) return false;
   if (o.elType === 'intersection') return true;
@@ -1710,7 +1715,7 @@ function pickOrCreatePoint(x, y, sx, sy) {
     if (g) {
       g._defKind = 'glider';
       g._onId = cv.id;
-      applyDrivenGray(g);
+      applyGliderColor(g);
       trackId(g.id);
       return { point: g, reused: false, isGlider: true, gliderOn: cv };
     }
