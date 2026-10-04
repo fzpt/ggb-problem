@@ -1325,7 +1325,7 @@ var lastListRefresh = 0;     // 对象列表节流刷新的时间戳
 
 /* ---------- 拖拽吸附网格 ---------- */
 var SNAP_PX = 6;   // 吸附阈值：点离最近格线交点 ≤ 该屏幕像素数就吸上
-var SNAP_CURVE_PX = 12;   // 贴线阈值：拖点时离曲线 ≤ 该屏幕像素数就优先贴到线上
+var SNAP_CURVE_PX = 7;   // 贴线阈值：拖点时离曲线 ≤ 该屏幕像素数就优先贴到线上
 function snapThresholdPx() {
   /* 缩放很远、格子很密时阈值不能超过约 1/3 格，避免"永远在吸" */
   return Math.min(SNAP_PX, 0.35 * Math.min(board.unitX, board.unitY));
@@ -2358,8 +2358,9 @@ function pickOrCreatePoint(x, y, sx, sy) {
     var live = adoptIntersection(hit);
     return { point: live, reused: true, isIntersection: true };
   }
-  /* 点落在某条曲线/圆/圆弧上 → 生成约束在该对象上的点（拖动时沿对象滑动） */
-  var cv = findCurveAt(sx, sy);
+  /* 点落在某条曲线/圆/圆弧上 → 生成约束在该对象上的点（拖动时沿对象滑动）。
+   * 用与拖点贴线一致的 SNAP_CURVE_PX，避免稍微靠近就意外变成约束点 */
+  var cv = findCurveAt(sx, sy, SNAP_CURVE_PX);
   if (cv) {
     var g = null;
     try { g = board.create('glider', [x, y, cv], { name: nextId('P') }); } catch (e) { g = null; }
@@ -2537,9 +2538,11 @@ function distToCurvePx(o, sx, sy) {
   }
   return Infinity;
 }
-/* 在屏幕坐标 (sx, sy) 处找一条曲线（直线/线段/圆/圆弧）：取 14px 内最近的一条 */
-function findCurveAt(sx, sy) {
-  var tol = 14, best = null, bestD = Infinity;
+/* 在屏幕坐标 (sx, sy) 处找一条曲线（直线/线段/圆/圆弧）：取 tol（默认 12）屏幕像素内最近的一条；
+ * 描点建约束点/拖点贴线用更严格的 SNAP_CURVE_PX，点选已有曲线工具用默认容差 */
+function findCurveAt(sx, sy, tol) {
+  tol = tol || 12;
+  var best = null, bestD = Infinity;
   forEachSnapCurve(function (o) {
     var d = distToCurvePx(o, sx, sy);
     if (d <= tol && d < bestD) { best = o; bestD = d; }
