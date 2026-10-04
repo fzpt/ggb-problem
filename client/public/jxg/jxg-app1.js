@@ -1107,7 +1107,13 @@ function projectPointToCurve(px, py, cv) {
   try {
     var et = cv.elType;
     if (isConicEl(cv)) {
-      /* 圆锥曲线没有初等最近点公式：沿参数曲线采样取最近采样点 */
+      /* 圆锥曲线：优先用 JSXGraph 数值投影（glider 同款，渐近线附近也准），失败回退采样取点 */
+      try {
+        var pr = JXG.Math.Geometry.projectCoordsToCurve(px, py, 0, cv, board);
+        if (pr && pr[0] && isFinite(pr[0].usrCoords[1]) && isFinite(pr[0].usrCoords[2])) {
+          return [pr[0].usrCoords[1], pr[0].usrCoords[2]];
+        }
+      } catch (e0) {}
       var smp = conicSamplePoints(cv), bq = null, bd = Infinity;
       for (var si = 0; si < smp.length; si++) {
         var dd2 = (smp[si][0] - px) * (smp[si][0] - px) + (smp[si][1] - py) * (smp[si][1] - py);
@@ -2099,6 +2105,15 @@ function symCircleCenter(o) {
 function distToCurvePx(o, sx, sy) {
   var et = o.elType;
   if (isConicEl(o)) {
+    /* 与 projectPointToCurve 一致：JSXGraph 数值投影，失败回退采样 */
+    try {
+      var uc3 = new JXG.Coords(JXG.COORDS_BY_SCREEN, [sx, sy], board).usrCoords;
+      var pr3 = JXG.Math.Geometry.projectCoordsToCurve(uc3[1], uc3[2], 0, o, board);
+      if (pr3 && pr3[0] && isFinite(pr3[0].usrCoords[1]) && isFinite(pr3[0].usrCoords[2])) {
+        var ps3 = toScreenPx(pr3[0].usrCoords[1], pr3[0].usrCoords[2]);
+        return Math.hypot(ps3[0] - sx, ps3[1] - sy);
+      }
+    } catch (e3) {}
     var smp3 = conicSamplePoints(o), bd3 = Infinity;
     for (var si3 = 0; si3 < smp3.length; si3++) {
       var sp3 = toScreenPx(smp3[si3][0], smp3[si3][1]);
