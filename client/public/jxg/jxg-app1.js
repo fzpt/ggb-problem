@@ -538,6 +538,7 @@ function stepToFormulaText(s) {
   var id = s.id || '';
   switch (s.type) {
     case 'point':
+      if (s.polygon !== undefined) return id + ' = Point(' + s.polygon + '.边' + (Number(s.edge) + 1) + ')';
       if (s.on) return id + ' = Point(' + s.on + ')';
       return id + ' = (' + ppNum(s.coords[0]) + ', ' + ppNum(s.coords[1]) + ')';
     case 'midpoint': return id + ' = Midpoint(' + s.p1 + ', ' + s.p2 + ')';
@@ -1177,18 +1178,22 @@ function snapPointToGrid(pt) {
    * 不触发 drag、不吸附），主点吸到线上整组同步平移，行为与吸格点一致。 */
   var sp = toScreenPx(pt.X(), pt.Y());
   var best = null, bestQ = null, bestD = Infinity, i, o;
-  for (i = createdIds.length - 1; i >= 0; i--) {
-    o = board.objects[createdIds[i]];
-    if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
-    if (definesPoint(o, pt)) continue;
-    if (curveDependsOn(o, pt)) continue;   // 多级依赖：拖动中不吸到（直接或间接）由该点定义的曲线上
-    if (o.getAttribute && o.getAttribute('visible') === false) continue;
+  forEachSnapCurve(function (cand) {
+    o = cand;
+    if (o._polyBorderOf) {
+      /* 多边形边：该点是该多边形顶点（含直接/间接依赖关系）时不吸，避免自吸附退化 */
+      var poly = board.objects[o._polyBorderOf.polyId];
+      if (poly && (definesPoint(poly, pt) || curveDependsOn(poly, pt))) return;
+    }
+    if (definesPoint(o, pt)) return;
+    if (curveDependsOn(o, pt)) return;   // 多级依赖：拖动中不吸到（直接或间接）由该点定义的曲线上
+    if (o.getAttribute && o.getAttribute('visible') === false) return;
     var q = projectPointToCurve(pt.X(), pt.Y(), o);
-    if (!q) continue;
+    if (!q) return;
     var qs = toScreenPx(q[0], q[1]);
     var dd = Math.hypot(sp[0] - qs[0], sp[1] - qs[1]);
     if (dd <= SNAP_CURVE_PX && dd < bestD) { best = o; bestQ = q; bestD = dd; }
-  }
+  });
   if (best) {
     pt._snapCurve = best;   // 供「拖点到线松手加约束」复用候选线
     pt.setPosition(JXG.COORDS_BY_USER, bestQ);
@@ -1457,6 +1462,7 @@ function maybeConstrainOnRelease(pt, pre) {
   try { pt.makeGlider(cv); } catch (e) { return false; }
   pt._defKind = 'glider';
   pt._onId = cv.id;
+  if (cv._polyBorderOf) pt._polyEdge = cv._polyBorderOf;   // 约束在多边形边上：序列化/级联删除用
   try { applyGliderColor(pt); } catch (e) {}
   try { board.update(); } catch (e) {}
   /* 拖动 + 约束合并为一步撤销：用按下时的快照 */
@@ -1942,8 +1948,15 @@ function pushPreDragHistory(pre) {
 function describeObj(o) {
   var name = o.name || o.id || '';
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
-    var extra = (o._defKind === 'glider' && o._onId && board.objects[o._onId])
-      ? '，在' + curveLabel(board.objects[o._onId]) + ' ' + board.objects[o._onId].name + '上' : '';
+    var extra = '';
+    if (o._defKind === 'glider') {
+      if (o._polyEdge) {
+        var pePoly0 = board.objects[o._polyEdge.polyId];
+        extra = '，在多边形 ' + (pePoly0 ? pePoly0.name : '?') + ' 的边' + (o._polyEdge.edgeIdx + 1) + '上';
+      } else if (o._onId && board.objects[o._onId]) {
+        extra = '，在' + curveLabel(board.objects[o._onId]) + ' ' + board.objects[o._onId].name + '上';
+      }
+    }
     return '点 ' + name + '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + extra + '）';
   }
   var label = { segment: '线段', line: '直线', circle: '圆', circumcircle: '三点圆', polygon: '多边形', intersection: '交点', arc: '圆弧' }[o.elType] || o.elType || '图形';
@@ -2024,6 +2037,7 @@ function pickOrCreatePoint(x, y, sx, sy) {
     if (g) {
       g._defKind = 'glider';
       g._onId = cv.id;
+      if (cv._polyBorderOf) g._polyEdge = cv._polyBorderOf;   // 落在多边形边上的约束点
       applyGliderColor(g);
       trackId(g.id);
       return { point: g, reused: false, isGlider: true, gliderOn: cv };
@@ -2108,6 +2122,7 @@ function isCurve(o) {
                o.elType === 'arc' || isConicEl(o));
 }
 function curveLabel(o) {
+  if (o._polyBorderOf) return '多边形边';
   if (o._defKind === 'ray') return '射线';
   if (o._defKind === 'bisector') return '角平分线';
   if (o._defKind === 'arc3') return '三点圆弧';
@@ -2196,14 +2211,28 @@ function distToCurvePx(o, sx, sy) {
 /* 在屏幕坐标 (sx, sy) 处找一条曲线（直线/线段/圆/圆弧）：取 14px 内最近的一条 */
 function findCurveAt(sx, sy) {
   var tol = 14, best = null, bestD = Infinity;
+  forEachSnapCurve(function (o) {
+    var d = distToCurvePx(o, sx, sy);
+    if (d <= tol && d < bestD) { best = o; bestD = d; }
+  });
+  return best;
+}
+/* 遍历可作为贴线/约束目标的曲线：登记的曲线 + 多边形的各条边（边未登记进 createdIds）。
+ * 多边形的边带 _polyBorderOf = {polyId, edgeIdx}，供约束序列化与级联删除定位。 */
+function forEachSnapCurve(fn) {
   for (var i = createdIds.length - 1; i >= 0; i--) {
     var o = board.objects[createdIds[i]];
-    if (o && o._defKind !== 'perpline' && isCurve(o)) {
-      var d = distToCurvePx(o, sx, sy);
-      if (d <= tol && d < bestD) { best = o; bestD = d; }
+    if (!o) continue;
+    if (o._defKind !== 'perpline' && isCurve(o)) { fn(o); continue; }
+    if (o.elType === 'polygon' && o.borders) {
+      for (var bi = 0; bi < o.borders.length; bi++) {
+        var bd = o.borders[bi];
+        if (!bd) continue;
+        if (!bd._polyBorderOf) bd._polyBorderOf = { polyId: o.id, edgeIdx: bi };
+        fn(bd);
+      }
     }
   }
-  return best;
 }
 /*
  * 计算两条曲线的交点。

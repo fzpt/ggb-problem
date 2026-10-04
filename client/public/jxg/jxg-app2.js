@@ -425,8 +425,13 @@ function objectToStepRaw(o) {
   if (dk === 'sidecand') return null;    // side 约束交点的候选交点，随 sidepick 点一起重建
   if (dk === 'ngonpt') return null;      // 正 N 边形的派生顶点，随 regularpolygon 步骤一起重建
   if (dk === 'ngoncenter') return null;  // 两点模式的隐藏中心点，随 regularpolygon 步骤一起重建
-  if (dk === 'glider')
+  if (dk === 'glider') {
+    /* 多边形边上的约束点：边无独立名称，用 polygon+edge 定位（与 intersection 一致） */
+    if (o._polyEdge)
+      return { type: 'point', id: nm, polygon: oname(o._polyEdge.polyId),
+               edge: o._polyEdge.edgeIdx, coords: [r4(o.X()), r4(o.Y())] };
     return { type: 'point', id: nm, on: oname(o._onId), coords: [r4(o.X()), r4(o.Y())] };
+  }
     if (dk === 'mirrorpt')
       return { type: 'mirrorpt', id: nm, of: oname(o._mirrorIds[0]), axis: oname(o._mirrorIds[1]), t: o._mtype };
     if (dk === 'rotate')
@@ -661,6 +666,11 @@ function describeDefRaw(o) {
   if (o._defKind === 'circle3' || o.elType === 'circumcircle')
     return '三点圆 ' + nm + '：过 ' + pname(o, 0) + '、' + pname(o, 1) + '、' + pname(o, 2);
   if (o._defKind === 'glider') {
+    if (o._polyEdge) {
+      var gPoly = board.objects[o._polyEdge.polyId];
+      return '点 ' + nm + '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）在多边形 ' +
+             (gPoly ? gPoly.name : '?') + ' 的边' + (o._polyEdge.edgeIdx + 1) + '上';
+    }
     var cv = o._onId && board.objects[o._onId];
     return '点 ' + nm + '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）在' +
            (cv ? curveLabel(cv) + ' ' + cv.name : '?') + '上';
@@ -1595,7 +1605,7 @@ board.on('down', function (e) {
     var r0 = pickOrCreatePoint(x, y, sx, sy);
     document.getElementById('hint').textContent = r0.isIntersection
       ? '已在两线交叉处生成联动' + describeObj(r0.point) + '。'
-      : (r0.isGlider ? '已生成' + describeObj(r0.point) + '（约束在' + curveLabel(r0.gliderOn) + r0.gliderOn.name + '上）。'
+      : (r0.isGlider ? '已生成' + describeObj(r0.point) + '。'   /* describeObj 已含约束位置（含多边形边） */
       : (r0.reused ? '已选中已有' + describeObj(r0.point) + '，没有新建点。' : HINTS.point));
   } else if (mode === 'segment' || mode === 'line' || mode === 'ray' || mode === 'circle') {
     var r = pickOrCreatePoint(x, y, sx, sy);
@@ -2406,6 +2416,21 @@ function createRegularPolygon(opts) {
     switch (s.type) {
       case 'point':
         if (!Array.isArray(s.coords)) throw new Error('第 ' + (i + 1) + ' 步：point 需要 coords [x,y]');
+        if (s.polygon !== undefined) {
+          /* 约束在多边形某条边上的点：polygon+edge 定位边（边无独立名称，与 intersection 一致） */
+          if (s.e1 !== undefined || s.e2 !== undefined || s.side !== undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：point 的 polygon 形式与 e1/e2/side 互斥');
+          var gpoly = resolveRef(s.polygon, registry, i);
+          var gbd = gpoly.borders && gpoly.borders[s.edge];
+          if (!gbd) throw new Error('第 ' + (i + 1) + ' 步：多边形 ' + s.polygon + ' 没有第 ' + s.edge + ' 条边');
+          el = board.create('glider', [s.coords[0], s.coords[1], gbd], { name: id });
+          el._defKind = 'glider';
+          el._onId = gbd.id;
+          el._polyEdge = { polyId: gpoly.id, edgeIdx: s.edge };
+          gbd._polyBorderOf = { polyId: gpoly.id, edgeIdx: s.edge };
+          applyGliderColor(el);
+          break;
+        }
         if (s.on !== undefined) {
           /* 约束在某对象上的点（描点时点中曲线自动生成） */
           var cv = resolveRef(s.on, registry, i);
