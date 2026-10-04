@@ -96,6 +96,8 @@ function setMode(m) {
   document.getElementById('hint').textContent = HINTS[m];
   try { document.getElementById('rotAngleWrap').style.display = (m === 'rotate') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('ngonWrap').style.display = (m === 'ngon') ? 'inline-flex' : 'none'; } catch (e) {}
+  try { document.getElementById('msrExprWrap').style.display = (m === 'mtext') ? 'inline-flex' : 'none'; } catch (e) {}
+  try { document.getElementById('adriveKWrap').style.display = (m === 'adrive') ? 'inline-flex' : 'none'; } catch (e) {}
   if (m === 'midpoint') seedMidpointFromSelection(preSel);
 }
 function isToolFlyoutOpen(gid) {
@@ -296,6 +298,13 @@ function nextId(prefix) {
   } while (nameTaken(nm) && guard < 100000);
   return nm;
 }
+/* 前缀独立序号的自动名（度量变量/表达式文本用）：L1、L2… / a1、a2… / t1、t2…
+ * 不受全局 autoN 混排影响，用户按名字引用表达式时更可预期 */
+function nextSeqId(prefix) {
+  var n = 1;
+  while (nameTaken(prefix + n)) n++;
+  return prefix + n;
+}
 
 /* 登记一个用户对象 id 并刷新对象列表（所有新增统一走这里，避免漏刷新） */
 function trackId(id) {
@@ -447,6 +456,17 @@ function objectToStepRaw(o) {
     if (dk === 'sidepick')
       return { type: 'intersection', id: nm, e1: oname(o._sideE1), e2: oname(o._sideE2),
                side: { line: oname(o._sideLine), point: oname(o._sidePoint), rel: o._sideRel } };
+  if (o._measure) {
+    if (o._measure.kind === 'length')
+      return { type: 'measure', id: nm, kind: 'length', of: oname(o._measure.of) };
+    return { type: 'measure', id: nm, kind: 'angle',
+             p1: oname(o._measure.pts[0]), vertex: oname(o._measure.pts[1]), p2: oname(o._measure.pts[2]) };
+  }
+  if (o._isExprText)
+    return { type: 'text', id: nm, at: [r4(o.X()), r4(o.Y())], expr: o._exprText };
+  if (dk === 'angdrive')
+    return { type: 'angdrive', id: nm, vertex: oname(o._adVertex), side: oname(o._adSide),
+             k: o._adK, src: o._adSrcName };
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
     if (o.elType === 'intersection') {
       if (o._polyEdge)
@@ -632,6 +652,24 @@ function describeDef(o) {
 }
 function describeDefRaw(o) {
   var nm = o.name || '';
+  if (o._measure) {
+    if (o._measure.kind === 'length') {
+      var lt = board.objects[o._measure.of];
+      var ltLabel = lt ? ({ segment: '线段', circle: '圆', circumcircle: '圆', arc: '圆弧', polygon: '多边形' })[lt.elType] || '对象' : '?';
+      return '长度 ' + nm + '：' + ltLabel + ' ' + (lt ? lt.name || '?' : '?') + ' = ' + fmtR(measureLenOf(lt));
+    }
+    var ap = o._measure.pts;
+    return '角度 ' + nm + '：∠' + oname(ap[0]) + oname(ap[1]) + oname(ap[2]) +
+           ' = ' + fmtR(measureCarrierValue(o)) + '°';
+  }
+  if (o._isExprText) {
+    var tv = NaN;
+    try { tv = evalMsrExpr(o._exprText); } catch (e) {}
+    return '文本 ' + nm + '：' + o._exprText + ' = ' + (isFinite(tv) ? fmtR(tv) : '?');
+  }
+  if (o._defKind === 'angdrive')
+    return '从动点 ' + nm + '：∠' + oname(o._adSide) + oname(o._adVertex) + nm +
+           ' = ' + ppNum(o._adK) + ' × ∠' + (o._adSrcName || '?') + '（单向从动）';
   if (o._defKind === 'mirrorpt') {
     var mo = o._mirrorIds && board.objects[o._mirrorIds[0]];
     var mx = o._mirrorIds && board.objects[o._mirrorIds[1]];
@@ -1026,7 +1064,7 @@ document.getElementById('objlist').addEventListener('dblclick', function (e) {
 function renameRefsInStep(s, oldN, newN) {
   var c = {};
   for (var k in s) c[k] = s[k];
-  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex', 'f1', 'f2', 'p', 'focus', 'directrix'].forEach(function (k) {
+  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex', 'f1', 'f2', 'p', 'focus', 'directrix', 'src', 'side'].forEach(function (k) {
     if (c[k] === oldN) c[k] = newN;
   });
   if (c.mirror) {  // 注意深拷贝：原实现是浅拷贝，直接改会污染原步骤
@@ -1044,6 +1082,11 @@ function renameRefsInStep(s, oldN, newN) {
     var re = new RegExp('(^|[^A-Za-z0-9_])' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
     if (typeof c.x === 'string') c.x = c.x.replace(re, '$1' + newN);
     if (typeof c.y === 'string') c.y = c.y.replace(re, '$1' + newN);
+  }
+  /* 表达式文本（text 的 expr）与从动角（angdrive 的 src）同样按标识符/名字引用 */
+  if (typeof c.expr === 'string') {
+    var re2 = new RegExp('(^|[^A-Za-z0-9_])' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
+    c.expr = c.expr.replace(re2, '$1' + newN);
   }
   if (Array.isArray(c.through3)) c.through3 = c.through3.map(function (v) { return v === oldN ? newN : v; });
   if (Array.isArray(c.points)) c.points = c.points.map(function (v) { return v === oldN ? newN : v; });
@@ -1465,6 +1508,13 @@ board.on('down', function (e) {
     var ptDown = findPointNear(sx, sy);
     if (ptDown && ptDown !== animMoverHit) singleDrag = { point: ptDown, x0: ptDown.X(), y0: ptDown.Y(), pre: snapshotState() };
   } catch (e) { singleDrag = null; }
+  /* 表达式文本原生拖拽的撤销支持：按下命中文本时存"拖拽前"快照（up 时真移动了才入栈） */
+  textDragPre = null;
+  try {
+    var txtDown = findObjectAt(sx, sy, (getUsrCoords(e).usrCoords[1]), (getUsrCoords(e).usrCoords[2]));
+    if (txtDown && txtDown.elType === 'text' && txtDown._isExprText)
+      textDragPre = { el: txtDown, x0: txtDown.X(), y0: txtDown.Y(), pre: snapshotState() };
+  } catch (e) { textDragPre = null; }
 
   /* 双击检测：多边形模式下双击某处，直接用已有顶点闭合多边形 */
   var nowMs = Date.now();
@@ -1516,7 +1566,7 @@ board.on('down', function (e) {
       startMoveSelection(sx, sy, findPointNear(sx, sy));
       /* 按中非点对象（线段/圆/多边形…）：关闭原生拖拽，统一走 moveSel 手动整体移动，
        * 否则被按中的对象跟手、其余选中对象冻结（多选位移不一致） */
-      if (moveSel && mHit.elementClass !== JXG.OBJECT_CLASS_POINT &&
+      if (moveSel && mHit.elementClass !== JXG.OBJECT_CLASS_POINT && mHit.elType !== 'text' &&
           board.mode === board.BOARD_MODE_DRAG) {
         board.mode = board.BOARD_MODE_NONE;
       }
@@ -1558,7 +1608,7 @@ board.on('down', function (e) {
        * 结果就是被按中的对象跟手、其余对象几乎不动（多选位移不一致），且原生
        * 拖拽不走网格吸附。选择模式下统一走 moveSel，本轮关闭原生拖拽；
        * 点保持原生拖拽（供 multiDrag 主点与单点拖拽使用）。 */
-      if (moveSel && hit.elementClass !== JXG.OBJECT_CLASS_POINT &&
+      if (moveSel && hit.elementClass !== JXG.OBJECT_CLASS_POINT && hit.elType !== 'text' &&
           board.mode === board.BOARD_MODE_DRAG) {
         board.mode = board.BOARD_MODE_NONE;
       }
@@ -1606,6 +1656,81 @@ board.on('down', function (e) {
   /* 对称/旋转工具：先选对称轴/对称中心/旋转中心，再多选图形，双击空白处生成 */
   if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate') {
     handleSymDown(x, y, sx, sy);
+    return;
+  }
+
+  /* 度量：长度 — 点选线段/圆/圆弧/多边形，生成长度变量 */
+  if (mode === 'mlen') {
+    var mh = findObjectAt(sx, sy, x, y);
+    if (!mh) { setStatus('请点击一条线段、圆、圆弧或多边形。', false); return; }
+    if (!isFinite(measureLenOf(mh))) {
+      setStatus('该对象没有有限长度（直线/射线无限长），请选线段、圆、圆弧或多边形。', false);
+      return;
+    }
+    var lm = makeLengthMeasure(mh, nextSeqId('L'));
+    setStatus('已创建' + describeDef(lm) + '。', true);
+    return;
+  }
+  /* 度量：角度 — 依次三点（第 2 点为角顶点） */
+  if (mode === 'mang') {
+    var rp = pickOrCreatePoint(x, y, sx, sy);
+    pendingPts.push(rp.point);
+    if (pendingPts.length < 3) {
+      document.getElementById('hint').textContent =
+        '角度度量：已选 ' + pendingPts.length + '/3 点' +
+        (pendingPts.length === 1 ? '（第 2 点为角顶点）' : '') + '。';
+      return;
+    }
+    var mpa = pendingPts[0], mpv = pendingPts[1], mpb = pendingPts[2];
+    pendingPts = []; pendingReused = false; pendingInter = false; clearFlashes();
+    var am = makeAngleMeasure(mpa, mpv, mpb, nextSeqId('a'));
+    document.getElementById('hint').textContent = HINTS.mang;
+    setStatus('已创建' + describeDef(am) + '。', true);
+    return;
+  }
+  /* 度量：表达式文本 — 工具栏输入表达式，点击空白处放置 */
+  if (mode === 'mtext') {
+    var exprInput = document.getElementById('msrExpr');
+    var mexpr = exprInput ? exprInput.value.trim() : '';
+    if (!mexpr) { setStatus('请先在工具栏右侧输入表达式（如 2*L1+a1/2）。', false); return; }
+    var mtx = makeExprTextEl(mexpr, x, y, nextSeqId('t'));
+    setStatus('已创建' + describeDef(mtx) + '。', true);
+    return;
+  }
+  /* 从动角 — 依次：基准角三点（第 2 点为顶点）→ 目标顶点 → 目标边点；倍数 k 在工具栏输入 */
+  if (mode === 'adrive') {
+    var rk = pickOrCreatePoint(x, y, sx, sy);
+    pendingPts.push(rk.point);
+    var adStages = ['基准角第 1 个点', '基准角顶点', '基准角第 2 个点', '目标角顶点', '目标角起始边上的点'];
+    if (pendingPts.length < 5) {
+      document.getElementById('hint').textContent =
+        '从动角：已选 ' + pendingPts.length + '/5，请点击' + adStages[pendingPts.length] + '。';
+      return;
+    }
+    var bp1 = pendingPts[0], bv = pendingPts[1], bp2 = pendingPts[2],
+        tv = pendingPts[3], ts = pendingPts[4];
+    pendingPts = []; pendingReused = false; pendingInter = false; clearFlashes();
+    if (tv.id === ts.id) {
+      setStatus('目标顶点与边上的点不能是同一个点，请重新操作。', false);
+      document.getElementById('hint').textContent = HINTS.adrive;
+      return;
+    }
+    var kEl = document.getElementById('adriveK');
+    var ak = kEl ? Number(kEl.value) : 1;
+    if (!isFinite(ak)) ak = 1;
+    /* 复用同三点的已有角度度量作为基准；没有则顺手新建 */
+    var srcCarrier = null;
+    for (var ci = 0; ci < createdIds.length; ci++) {
+      var cc = board.objects[createdIds[ci]];
+      if (cc && cc._measure && cc._measure.kind === 'angle') {
+        var cpts = cc._measure.pts;
+        if (cpts[0] === bp1.id && cpts[1] === bv.id && cpts[2] === bp2.id) { srcCarrier = cc; break; }
+      }
+    }
+    if (!srcCarrier) srcCarrier = makeAngleMeasure(bp1, bv, bp2, nextSeqId('a'));
+    var dp = makeAngleDrivenPoint(tv, ts, srcCarrier, ak, nextId('P'));
+    document.getElementById('hint').textContent = HINTS.adrive;
+    setStatus('已创建' + describeDef(dp) + '。', true);
     return;
   }
 
@@ -2825,6 +2950,41 @@ function createRegularPolygon(opts) {
           });
           el._depIds = _exprRefs;
           el._exprX = s.x; el._exprY = s.y;
+          break;
+        }
+        case 'measure': {
+          if (s.kind === 'length') {
+            var mlt = resolveRef(s.of, registry, i);
+            if (!isFinite(measureLenOf(mlt)))
+              throw new Error('第 ' + (i + 1) + ' 步：measure 的 of 必须是有有限长度的对象（线段/圆/圆弧/多边形）');
+            el = makeLengthMeasure(mlt, id, true);
+          } else if (s.kind === 'angle') {
+            var mq1 = resolveRef(s.p1, registry, i),
+                mqv = resolveRef(s.vertex, registry, i),
+                mq2 = resolveRef(s.p2, registry, i);
+            el = makeAngleMeasure(mq1, mqv, mq2, id, true);
+          } else {
+            throw new Error('第 ' + (i + 1) + ' 步：measure 的 kind 只能是 length 或 angle');
+          }
+          break;
+        }
+        case 'text': {
+          if (!Array.isArray(s.at) || s.at.length !== 2 || !s.at.every(function (n) { return Number.isFinite(n); }))
+            throw new Error('第 ' + (i + 1) + ' 步：text 需要 at [x,y] 数值坐标');
+          if (typeof s.expr !== 'string' || !s.expr.trim())
+            throw new Error('第 ' + (i + 1) + ' 步：text 需要 expr 表达式字符串');
+          el = makeExprTextEl(s.expr, s.at[0], s.at[1], id, true);
+          break;
+        }
+        case 'angdrive': {
+          var adv = resolveRef(s.vertex, registry, i),
+              ads = resolveRef(s.side, registry, i);
+          var adk = Number(s.k);
+          if (!isFinite(adk)) throw new Error('第 ' + (i + 1) + ' 步：angdrive 的 k 需要数值（倍数）');
+          var adsrc = registry[s.src];
+          if (!adsrc || !adsrc._measure || adsrc._measure.kind !== 'angle')
+            throw new Error('第 ' + (i + 1) + ' 步：angdrive 的 src 必须是已定义的角度度量 id');
+          el = makeAngleDrivenPoint(adv, ads, adsrc, adk, id, true);
           break;
         }
         default:

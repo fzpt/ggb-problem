@@ -258,7 +258,8 @@
   .right { flex: 1 1 380px; min-width: 320px; display: flex; flex-direction: column; gap: 12px; }
   .card { background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
   .card h2 { margin: 0 0 10px; font-size: 15px; }
-  #toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+  /* 单行不换行：换行会把画板容器挤下去，导致点击坐标错位 */
+  #toolbar { display: flex; flex-wrap: nowrap; gap: 8px; margin-bottom: 10px; align-items: center; overflow-x: auto; overflow-y: hidden; }
   #toolbar button { padding: 8px 12px; border: 1px solid #d0d7de; background: #fff; border-radius: 8px; cursor: pointer; font-size: 13px; }
   #toolbar button.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
   #toolbar button:hover { border-color: #1f6feb; }
@@ -537,6 +538,21 @@
         <button class="tool" data-mode="conic" title="五点二次曲线：依次点击五个点（任三点不共线），自动生成椭圆/双曲线/抛物线" aria-label="五点二次曲线">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="8.6" ry="5.4"/><circle cx="20" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.6" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.4" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="6.6" r="1.5" fill="currentColor" stroke="none"/></svg>
         </button>
+        <span class="toolsep"></span>
+        <button class="tool" data-mode="mlen" title="长度度量：点击一条线段、圆、圆弧或多边形，生成长度变量 L1、L2…（可在表达式文本里引用）" aria-label="长度度量">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5L16.5 5l3.5 3.5L7.5 21z"/><path d="M7.6 14.4l2.1 2.1M10.5 11.5l2.1 2.1M13.4 8.6l2.1 2.1"/></svg>
+        </button>
+        <button class="tool" data-mode="mang" title="角度度量：依次点击三个点（第 2 点为角顶点），生成角度变量 a1、a2…（度，逆时针 0～360；可在表达式文本里引用）" aria-label="角度度量">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 18L6 5.5M6 18L18.5 18"/><path d="M6 12.5A6.5 6.5 0 0 1 11.5 6.2"/><circle cx="6" cy="18" r="1.9" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="tool" data-mode="mtext" title="表达式文本：在工具栏右侧输入表达式（如 2*L1+a1/2），点击空白处放置；内容随度量/图形变化实时更新" aria-label="表达式文本">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13"/></svg>
+        </button>
+        <span id="msrExprWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">表达式<input id="msrExpr" type="text" placeholder="2*L1+a1/2" title="表达式文本：只可用已定义的长度/角度变量与数字，+ - * / 括号" style="width:110px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"></span>
+        <button class="tool" data-mode="adrive" title="从动角：倍数 k 在工具栏右侧输入；依次点基准角三点（第 2 点为顶点）→ 目标顶点 → 目标边点，生成从动点 D：∠边点·顶点·D = k × 基准角（单向从动）" aria-label="从动角">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18L6 5.5M6 18L18.5 18"/><path d="M6 12.5A6.5 6.5 0 0 1 11.5 6.2"/><path d="M11 3.8l2.4 1.6-2.7 1.3" stroke-width="1.5"/></svg>
+        </button>
+        <span id="adriveKWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">倍数 k<input id="adriveK" type="number" value="1" step="0.5" title="从动角倍数 k（可为负，逆时针为正）" style="width:50px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"></span>
         <span class="toolsep"></span>
         <button class="tool" data-action="delete" title="删除：先在选择模式下选中对象（可 Shift 多选），再点此按钮删除；也可按 Del 键" aria-label="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>

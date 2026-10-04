@@ -538,6 +538,200 @@ function ppNum(x) {
   v = Math.round(v * 100) / 100;
   return String(v);
 }
+/* ---------- 度量变量（长度/角度）与表达式文本 ----------
+ * 度量以"载体"挂进 createdIds：长度度量的载体是隐藏固定点（不可点选、不参与吸附/框选）；
+ * 角度度量的载体是 JSXGraph angle 元素（带弧线与名称标签，可视化）。
+ * 载体带 _measure 定义与 _depIds 显式依赖（级联删除/依赖序/联动选中）。 */
+function angleDeg3(p1, v, p2) {
+  var a1 = Math.atan2(p1.Y() - v.Y(), p1.X() - v.X());
+  var a2 = Math.atan2(p2.Y() - v.Y(), p2.X() - v.X());
+  var d = (a2 - a1) * 180 / Math.PI;
+  return ((d % 360) + 360) % 360;   // 逆时针 0～360，与旋转工具"逆时针为正"一致
+}
+/* 长度度量目标的当前数值：线段=两端距离；圆/三点圆=周长；圆弧=弧长；多边形=周长；其余 NaN */
+function measureLenOf(t) {
+  if (!t) return NaN;
+  try {
+    if (t.elType === 'segment') {
+      var pr = t.parents || [];
+      var a = board.objects[pr[0]], b = board.objects[pr[1]];
+      return (a && b) ? Math.hypot(b.X() - a.X(), b.Y() - a.Y()) : NaN;
+    }
+    if (t.elType === 'circle' || t.elType === 'circumcircle') {
+      var r = radiusOf(t);
+      return isFinite(r) ? 2 * Math.PI * r : NaN;
+    }
+    if (t.elType === 'arc') {
+      var r2 = radiusOf(t);
+      var av = (typeof t.Value === 'function') ? t.Value() : NaN;
+      return (isFinite(r2) && isFinite(av)) ? r2 * Math.abs(av) : NaN;
+    }
+    if (t.elType === 'polygon') {
+      var vs = t.vertices || [], sum = 0;
+      for (var i = 0; i < vs.length; i++) {
+        var p = vs[i], q = vs[(i + 1) % vs.length];
+        sum += Math.hypot(q.X() - p.X(), q.Y() - p.Y());
+      }
+      return sum;
+    }
+  } catch (e) {}
+  return NaN;
+}
+/* 度量载体当前值：角度为度（0～360 逆时针），长度为单位长 */
+function measureCarrierValue(o) {
+  if (!o || !o._measure) return NaN;
+  try {
+    if (o._measure.kind === 'angle') {
+      var t = o._measure.pts;
+      var p1 = board.objects[t[0]], v = board.objects[t[1]], p2 = board.objects[t[2]];
+      return (p1 && v && p2) ? angleDeg3(p1, v, p2) : NaN;
+    }
+    return measureLenOf(board.objects[o._measure.of]);
+  } catch (e) { return NaN; }
+}
+/* 收集全部度量变量 名称→数值（表达式文本求值用） */
+function collectMeasureVars() {
+  var vars = {};
+  for (var i = 0; i < createdIds.length; i++) {
+    var o = board.objects[createdIds[i]];
+    if (o && o._measure && o.name) vars[o.name] = measureCarrierValue(o);
+  }
+  return vars;
+}
+/* 表达式文本求值：数字、度量变量名、+ - * / 括号（不支持函数）。未知度量抛错。 */
+function evalMsrExpr(src, vars) {
+  vars = vars || collectMeasureVars();
+  var s = String(src), i = 0;
+  function skip() { while (i < s.length && /\s/.test(s[i])) i++; }
+  function parseAdd() {
+    var v = parseMul();
+    for (;;) {
+      skip();
+      if (s[i] === '+') { i++; v = v + parseMul(); }
+      else if (s[i] === '-') { i++; v = v - parseMul(); }
+      else return v;
+    }
+  }
+  function parseMul() {
+    var v = parseFactor();
+    for (;;) {
+      skip();
+      if (s[i] === '*') { i++; v = v * parseFactor(); }
+      else if (s[i] === '/') { i++; v = v / parseFactor(); }
+      else return v;
+    }
+  }
+  function parseFactor() {
+    skip();
+    if (s[i] === '-') { i++; return -parseFactor(); }
+    if (s[i] === '(') {
+      i++; var v = parseAdd();
+      skip();
+      if (s[i] !== ')') throw new Error('缺少右括号');
+      i++; return v;
+    }
+    var m = s.slice(i).match(/^\d*\.?\d+(?:[eE][+-]?\d+)?/);
+    if (m) { i += m[0].length; return parseFloat(m[0]); }
+    m = s.slice(i).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (m) {
+      i += m[0].length;
+      if (!(m[0] in vars) || !isFinite(vars[m[0]])) throw new Error('未知度量 "' + m[0] + '"');
+      return vars[m[0]];
+    }
+    throw new Error('无法解析的表达式');
+  }
+  var r = parseAdd();
+  skip();
+  if (i < s.length) throw new Error('表达式末尾有多余内容');
+  return r;
+}
+/* 表达式文本的画板内容函数：画板每次更新重算（度量/图形变化时自动跟新） */
+function makeMsrTextContent(el) {
+  return function () {
+    try {
+      var v = evalMsrExpr(el._exprText);
+      return isFinite(v) ? ppNum(v) : '?';
+    } catch (e) { return '?'; }
+  };
+}
+/* 重扫表达式文本引用的度量（改名/改表达式后刷新级联依赖） */
+function rescanTextDeps(el) {
+  var deps = [];
+  try {
+    String(el._exprText).replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (m) {
+      for (var i = 0; i < createdIds.length; i++) {
+        var c = board.objects[createdIds[i]];
+        if (c && c._measure && c.name === m && deps.indexOf(c.id) < 0) deps.push(c.id);
+      }
+      return m;
+    });
+  } catch (e) {}
+  el._depIds = deps;
+}
+/* 创建长度度量（载体为隐藏固定点）；skipTrack=true 时由调用方统一登记 */
+function makeLengthMeasure(target, name, skipTrack) {
+  var el = board.create('point', [0, 0], { name: name, visible: false, fixed: true, withLabel: false });
+  el._defKind = 'measure';
+  el._measure = { kind: 'length', of: target.id };
+  el._depIds = [target.id];
+  if (!skipTrack) trackId(el.id);
+  return el;
+}
+/* 创建角度度量（载体为 angle 元素：弧线 + 名称=数值° 标签） */
+function makeAngleMeasure(p1, v, p2, name, skipTrack) {
+  var el = board.create('angle', [p1, v, p2], { name: name, radius: 1 });
+  el._defKind = 'measure';
+  el._measure = { kind: 'angle', pts: [p1.id, v.id, p2.id] };
+  el._depIds = [p1.id, v.id, p2.id];
+  try {
+    el.label.setText(function () {
+      return name + ' = ' + ppNum(measureCarrierValue(el)) + '°';
+    });
+  } catch (e) {}
+  if (!skipTrack) trackId(el.id);
+  return el;
+}
+/* 创建表达式文本（可拖动，内容每次更新重算） */
+function makeExprTextEl(expr, x, y, name, skipTrack) {
+  var el = board.create('text', [x, y, ''], { name: name, fontSize: 14, draggable: true });
+  el._defKind = 'text';
+  el._isExprText = true;
+  el._exprText = String(expr);
+  try { el.setText(makeMsrTextContent(el)); } catch (e) {}
+  rescanTextDeps(el);
+  if (!skipTrack) trackId(el.id);
+  return el;
+}
+/* 创建从动角点：D 在射线 V→A 上，且 ∠AVD = k × 基准角（逆时针；基准角为角度度量载体）。
+ * 单向从动：改基准角/顶点/边点 → D 跟随；D 固定置灰，不可拖。 */
+function makeAngleDrivenPoint(V, A, srcCarrier, k, name, skipTrack) {
+  function thetaRad() {
+    var base = measureCarrierValue(srcCarrier);
+    return (isFinite(base) ? base : 0) * (Number(k) || 0) * Math.PI / 180;
+  }
+  var el = board.create('point', [
+    function () {
+      var th = thetaRad();
+      var dx = A.X() - V.X(), dy = A.Y() - V.Y();
+      return V.X() + dx * Math.cos(th) - dy * Math.sin(th);
+    },
+    function () {
+      var th = thetaRad();
+      var dx = A.X() - V.X(), dy = A.Y() - V.Y();
+      return V.Y() + dx * Math.sin(th) + dy * Math.cos(th);
+    }
+  ], { name: name, fixed: true });
+  el._defKind = 'angdrive';
+  el._adVertex = V.id;
+  el._adSide = A.id;
+  el._adK = Number(k) || 0;
+  el._adSrc = srcCarrier.id;
+  el._adSrcName = srcCarrier.name || '';
+  el._depIds = [V.id, A.id, srcCarrier.id];
+  applyDrivenGray(el);
+  if (!skipTrack) trackId(el.id);
+  return el;
+}
 /* 步骤 → 可读的构造公式（GeoGebra 风格） */
 function stepToFormulaText(s) {
   if (!s || !s.type) return '';
@@ -585,6 +779,11 @@ function stepToFormulaText(s) {
       if (s.center !== undefined)
         return id + ' = 正' + s.n + '边形(中心' + s.center + ', ' + s.vertex + ')';
       return id + ' = 正' + s.n + '边形(' + s.p1 + ', ' + s.p2 + '〔逆时针〕)';
+    case 'measure':
+      if (s.kind === 'length') return id + ' = 长度(' + s.of + ')';
+      return id + ' = ∠' + s.p1 + s.vertex + s.p2;
+    case 'text': return id + ' = 文本(' + s.expr + ')';
+    case 'angdrive': return id + ' = 从动角(顶点' + s.vertex + ', 边' + s.side + ', ' + ppNum(s.k) + '×' + s.src + ')';
   }
   return '';
 }
@@ -728,6 +927,25 @@ function renderPropPanel() {
          '<span class="ctl" id="ppEq" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
          escHtml(eqt) + '</span></div>';
   }
+  /* 度量变量：只读"值"行（refreshPropDynamic 里随画板更新刷新） */
+  if (!multi && o._measure) {
+    var mv0 = measureCarrierValue(o);
+    h += '<div class="prow"><span>值</span>' +
+         '<span class="ctl" id="ppMsrVal" style="text-align:right;color:#24292f;">' +
+         (o._measure.kind === 'angle' ? ppNum(mv0) + '°' : ppNum(mv0)) + '</span></div>';
+  }
+  /* 表达式文本：值（动态）+ 可编辑表达式 */
+  if (!multi && o._isExprText) {
+    var tv0 = NaN;
+    try { tv0 = evalMsrExpr(o._exprText); } catch (e) {}
+    h += '<div class="prow"><span>值</span>' +
+         '<span class="ctl" id="ppMsrVal" style="text-align:right;color:#24292f;">' +
+         (isFinite(tv0) ? ppNum(tv0) : '?') + '</span></div>';
+    h += '<div class="prow"><span>表达式</span><span class="ctl">' +
+         '<input type="text" id="ppExpr" value="' + escAttr(o._exprText) + '" ' +
+         'style="width:150px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
+         '</span></div>';
+  }
   /* 共同样式属性：颜色所有对象都有；线型/线宽仅全部为非点对象时显示；
    * 填充仅全部为封闭图形时显示；值不一致的项标注“多值”，用户改动后统一应用到全部对象 */
   var colM = multi ? eachVal(colorOf) : { val: colorOf(o), mixed: false };
@@ -845,6 +1063,25 @@ function renderPropPanel() {
     });
     ppName.addEventListener('click', function (ev) { ev.stopPropagation(); });
   }
+  /* 表达式文本：回车应用新表达式（记一次历史，重扫级联依赖） */
+  var ppExpr = document.getElementById('ppExpr');
+  if (ppExpr) {
+    ppExpr.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      if (ev.key !== 'Enter') return;
+      var v = ppExpr.value.trim();
+      if (!v) { setStatus('表达式不能为空。', false); return; }
+      if (propTarget && propTarget._isExprText) {
+        markHist();
+        propTarget._exprText = v;
+        rescanTextDeps(propTarget);
+        try { board.update(); } catch (e) {}
+        try { refreshObjectList(); } catch (e) {}
+        setStatus('已更新表达式为 "' + v + '"。', true);
+      }
+    });
+    ppExpr.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  }
 }
 document.getElementById('ppClose').addEventListener('click', closePropPanel);
 /* 面板打开期间：画板更新后 300ms 节流刷新 定义/方程 数值（名称输入中不刷新） */
@@ -871,6 +1108,17 @@ function refreshPropDynamic() {
   }
   var q = document.getElementById('ppEq');
   if (q) q.textContent = equationTextOf(propTarget);
+  /* 度量/表达式文本的"值"行随画板更新刷新 */
+  var mv = document.getElementById('ppMsrVal');
+  if (mv) {
+    var vv = NaN;
+    try {
+      vv = propTarget._measure ? measureCarrierValue(propTarget) : evalMsrExpr(propTarget._exprText);
+    } catch (e) {}
+    mv.textContent = (propTarget._measure && propTarget._measure.kind === 'angle')
+      ? (isFinite(vv) ? ppNum(vv) + '°' : '?')
+      : (isFinite(vv) ? ppNum(vv) : '?');
+  }
 }
 board.on('update', function () {
   var now = Date.now();
@@ -1028,7 +1276,8 @@ var COMPOSITE_BUNDLE_MODES = {
   ellipse: 1, hyperbola: 1, parabola: 1, conic: 1,
   intersect: 1, midpoint: 1, perpendicular: 1, perpseg: 1,
   bisector: 1, incenter: 1, circumcenter: 1, orthocenter: 1,
-  pline: 1, pray: 1, pseg: 1, psegfree: 1
+  pline: 1, pray: 1, pseg: 1, psegfree: 1,
+  mang: 1, adrive: 1
 };
 var gestureGroupIds = [];   // 本次手势创建的对象内部 id（登记列表分组用）
 var objGroups = [];         // 对象列表分组：组合手势生成的对象块，列表拖拽不可拆散
@@ -1520,6 +1769,17 @@ board.on('up', function () {
     if (pp0 && pp0.style.display === 'block' && !propBoardMode) openBoardPropPanel();
   }
   var moved = (multiDrag && multiDrag.pushed) || (moveSel && moveSel.pushed);
+  /* 表达式文本拖动：真移动了把"按下时"快照入栈（与单点拖拽同一套撤销语义） */
+  var textMoved = false;
+  if (textDragPre) {
+    try {
+      var td = textDragPre.el;
+      textMoved = !!td && board.objects[td.id] === td &&
+        (td.X() !== textDragPre.x0 || td.Y() !== textDragPre.y0);
+      if (textMoved) pushPreDragHistory(textDragPre.pre);
+    } catch (e) { textMoved = false; }
+    textDragPre = null;
+  }
   /* 单点原生拖拽：真移动了才把"按下时"的快照入栈（multiDrag/moveSel 已记的不重复记） */
   var singleMoved = false;
   if (!moved && singleDrag) {
@@ -1542,7 +1802,7 @@ board.on('up', function () {
   }
   singleDrag = null;
   /* 有实质位移 → 刷一次对象列表，保证列表坐标与画板一致 */
-  if (moved || singleMoved) { try { refreshObjectList(); } catch (e) {} }
+  if (moved || singleMoved || textMoved) { try { refreshObjectList(); } catch (e) {} }
   /* 在已选对象上纯单击（无拖拽）→ 收拢为单选 */
   if (pendingSingleSel && !moved) selectSingle(pendingSingleSel);
   pendingSingleSel = null;
@@ -1582,7 +1842,11 @@ var HINTS = {
   rotate:  '当前工具：旋转 — 先点击一个点作为旋转中心（角度在工具栏右侧输入，逆时针为正）。',
   rotate_pick: '已选旋转中心 — 点选要旋转的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
-  polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。'
+  polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
+  mlen:    '当前工具：长度度量 — 点击一条线段、圆、圆弧或多边形，生成长度变量（L1、L2…，可在表达式文本中引用）。',
+  mang:    '当前工具：角度度量 — 依次点击三个点（第 2 点为角顶点，可复用已有点/交点），生成角度变量（a1、a2…，单位度，逆时针 0～360）。',
+  mtext:   '当前工具：表达式文本 — 在工具栏右侧输入表达式（如 2*L1+a1/2），再点击空白处放置；表达式随度量/图形变化实时更新。',
+  adrive:  '当前工具：从动角 — 倍数 k 在工具栏右侧输入；依次点击：基准角三点（第 2 点为顶点）→ 目标顶点 → 目标角一条边上的点，生成从动点 D：∠边点·顶点·D = k × 基准角（单向从动）。'
 };
 
 /* ---------- 选择 / 吸附已有'点的支持 ---------- */
@@ -1619,6 +1883,7 @@ var depSelected = [];    // 依赖联动选中（紫色）：依赖选中对象�
 var pendingSingleSel = null;  // 在已选对象上按下（未加 Shift）：松开且无拖拽时收拢为单选
 var multiDrag = null;  // 多选拖拽会话
 var singleDrag = null;  // 单点原生拖拽：按下命中点时存"拖拽前"快照，up 时真移动了才入栈
+var textDragPre = null;  // 表达式文本原生拖拽：同样按下时存快照，up 时真移动了入栈
 function highlightOn(o) {
   o._selBackup = saveVis(o);
   try {
@@ -1751,7 +2016,7 @@ function isDrivenPoint(o) {
   return dk === 'midpoint' || dk === 'footpoint' || dk === 'tricenter' ||
          dk === 'mirrorpt' || dk === 'parend' || dk === 'pfoot' ||
          dk === 'dilate' || dk === 'rotate' || dk === 'exprpoint' || dk === 'sidepick' ||
-         dk === 'ngonpt';
+         dk === 'ngonpt' || dk === 'angdrive';
 }
 function applyDrivenGray(o) {
   if (!isDrivenPoint(o)) return;
@@ -1998,6 +2263,19 @@ function pushPreDragHistory(pre) {
 }
 function describeObj(o) {
   var name = o.name || o.id || '';
+  if (o._measure) {
+    return o._measure.kind === 'length'
+      ? '长度 ' + name + ' = ' + ppNum(measureLenOf(board.objects[o._measure.of]))
+      : '角度 ' + name + ' = ' + ppNum(measureCarrierValue(o)) + '°';
+  }
+  if (o._isExprText) {
+    var tv = NaN;
+    try { tv = evalMsrExpr(o._exprText); } catch (e) {}
+    return '文本 ' + name + '：' + o._exprText + ' = ' + (isFinite(tv) ? ppNum(tv) : '?');
+  }
+  if (o._defKind === 'angdrive')
+    return '从动点 ' + name + '：∠' + (board.objects[o._adSide] || {}).name + (board.objects[o._adVertex] || {}).name +
+           name + ' = ' + ppNum(o._adK) + ' × ∠' + (o._adSrcName || '?');
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
     var extra = '';
     if (o._defKind === 'glider') {
@@ -2023,7 +2301,7 @@ function findPointNear(sx, sy, tol) {
   tol = tol || 14;
   for (var i = 0; i < createdIds.length; i++) {
     var o = board.objects[createdIds[i]];
-    if (o && o.elementClass === JXG.OBJECT_CLASS_POINT && o.coords && o.coords.scrCoords) {
+    if (o && o.elementClass === JXG.OBJECT_CLASS_POINT && !o._measure && o.coords && o.coords.scrCoords) {
       var dx = o.coords.scrCoords[1] - sx, dy = o.coords.scrCoords[2] - sy;
       if (dx * dx + dy * dy <= tol * tol) return o;
     }
@@ -2061,7 +2339,7 @@ function findObjectAt(sx, sy, x, y) {
   var i, o;
   for (i = createdIds.length - 1; i >= 0; i--) {
     o = board.objects[createdIds[i]];
-    if (o && o._defKind !== 'perpline' && o.elementClass === JXG.OBJECT_CLASS_POINT && o.hasPoint && o.hasPoint(sx, sy)) return o;
+    if (o && o._defKind !== 'perpline' && !o._measure && o.elementClass === JXG.OBJECT_CLASS_POINT && o.hasPoint && o.hasPoint(sx, sy)) return o;
   }
   for (i = createdIds.length - 1; i >= 0; i--) {
     o = board.objects[createdIds[i]];
@@ -2633,6 +2911,7 @@ function finishMarquee() {
     if (!o || !board.objects[o.id]) continue;
     /* 隐藏辅助元素（垂线/平行辅助线/同侧候选点）不参与框选 */
     if (o._defKind === 'perpline' || o._defKind === 'parline' || o._defKind === 'sidecand') continue;
+    if (o._measure) continue;   // 长度度量的隐藏载体不可框选（角度度量载体可见可框）
     if (isSelected(o)) continue;
     if (rectContainsObject(o, ux0, uy0, ux1, uy1)) {
       selectedObjs.push(o);
