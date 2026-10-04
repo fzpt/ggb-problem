@@ -372,14 +372,20 @@
   /* 轨迹运动按钮运行态 */
   #toolbar button.tool[data-action="traceanim"].running { background: #1f6feb; color: #fff; border-color: #1f6feb; }
   #toolbar button.tool[data-action="traceanim"].running svg { stroke: #fff; }
-  /* 嵌入模式（React 外壳 iframe）：只保留画板区，隐藏说明头与右栏 */
+  /* 嵌入模式（React 外壳 iframe）：只保留画板区，隐藏说明头与右栏。
+   * 整列 flex 撑满 iframe 高度，画板区吃掉剩余空间：工具栏折行/样式栏/提示行
+   * 高度变化时画板自动伸缩，绝不出现页面滚动条（原固定 calc(100vh-130px)
+   * 在工具栏占高超过 130px 时内容溢出）。 */
+  body.embedded { height: 100vh; overflow: hidden; }
   body.embedded header { display: none; }
-  body.embedded .layout { display: block; padding: 0; max-width: none; margin: 0; }
-  body.embedded .left { width: 100%; }
-  body.embedded .left > .card { border: none; border-radius: 0; margin: 0; padding: 8px; box-shadow: none; }
+  body.embedded .layout { display: flex; flex-direction: column; padding: 0; max-width: none; margin: 0; height: 100%; box-sizing: border-box; }
+  body.embedded .left { width: 100%; height: 100%; min-height: 0; }
+  body.embedded .left > .card { border: none; border-radius: 0; margin: 0; padding: 8px; box-shadow: none;
+    display: flex; flex-direction: column; height: 100%; box-sizing: border-box; min-height: 0; }
   body.embedded .left > .card > h2 { display: none; }
   body.embedded .right { display: none; }
-  body.embedded #boardwrap { height: calc(100vh - 130px); resize: none; }
+  body.embedded .boardrow { flex: 1 1 auto; min-height: 0; }
+  body.embedded #boardwrap { flex: 1 1 auto; height: auto; min-height: 0; width: auto; resize: none; }
   /* 只读模式：隐藏编辑工具，画板可拖动对象/平移查看，禁止新建/删除/改属性 */
   body.jxg-readonly #toolbar,
   body.jxg-readonly #stylebar,
