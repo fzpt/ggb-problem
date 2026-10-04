@@ -1163,32 +1163,29 @@ function projectPointToCurve(px, py, cv) {
 function snapPointToGrid(pt) {
   if (!pt || pt.elType !== 'point' || pt._defKind === 'glider') return;
   if (!pt.isDraggable || !board.objects[pt.id]) return;
-  /* 多选整体移动：只有鼠标点中的主点贴格点（贴线吸附关掉，避免整组被拉到线上），
-   * 其余点由 update 处理器刚性跟随、不单独吸附 */
-  var isGroupPrimary = (typeof multiDrag !== 'undefined' && multiDrag && multiDrag.primary === pt);
   pt._snapCurve = null;
-  if (!isGroupPrimary) {
-    /* 1) 贴线优先：SNAP_CURVE_PX 内取投影最近的一条曲线。
-     * 排除以该点为定义点的曲线（避免自吸附退化）、辅助垂线段与不可见曲线。 */
-    var sp = toScreenPx(pt.X(), pt.Y());
-    var best = null, bestQ = null, bestD = Infinity, i, o;
-    for (i = createdIds.length - 1; i >= 0; i--) {
-      o = board.objects[createdIds[i]];
-      if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
-      if (definesPoint(o, pt)) continue;
-      if (curveDependsOn(o, pt)) continue;   // 多级依赖：拖动中不吸到（直接或间接）由该点定义的曲线上
-      if (o.getAttribute && o.getAttribute('visible') === false) continue;
-      var q = projectPointToCurve(pt.X(), pt.Y(), o);
-      if (!q) continue;
-      var qs = toScreenPx(q[0], q[1]);
-      var dd = Math.hypot(sp[0] - qs[0], sp[1] - qs[1]);
-      if (dd <= SNAP_CURVE_PX && dd < bestD) { best = o; bestQ = q; bestD = dd; }
-    }
-    if (best) {
-      pt._snapCurve = best;   // 供「拖点到线松手加约束」复用候选线
-      pt.setPosition(JXG.COORDS_BY_USER, bestQ);
-      return;
-    }
+  /* 1) 贴线优先：SNAP_CURVE_PX 内取投影最近的一条曲线。
+   * 排除以该点为定义点的曲线（避免自吸附退化）、多级依赖曲线、辅助垂线段与不可见曲线。
+   * 多选整体移动时也只有被鼠标点中的主点会走到这里（跟随点由 update 镜像刚性位移，
+   * 不触发 drag、不吸附），主点吸到线上整组同步平移，行为与吸格点一致。 */
+  var sp = toScreenPx(pt.X(), pt.Y());
+  var best = null, bestQ = null, bestD = Infinity, i, o;
+  for (i = createdIds.length - 1; i >= 0; i--) {
+    o = board.objects[createdIds[i]];
+    if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
+    if (definesPoint(o, pt)) continue;
+    if (curveDependsOn(o, pt)) continue;   // 多级依赖：拖动中不吸到（直接或间接）由该点定义的曲线上
+    if (o.getAttribute && o.getAttribute('visible') === false) continue;
+    var q = projectPointToCurve(pt.X(), pt.Y(), o);
+    if (!q) continue;
+    var qs = toScreenPx(q[0], q[1]);
+    var dd = Math.hypot(sp[0] - qs[0], sp[1] - qs[1]);
+    if (dd <= SNAP_CURVE_PX && dd < bestD) { best = o; bestQ = q; bestD = dd; }
+  }
+  if (best) {
+    pt._snapCurve = best;   // 供「拖点到线松手加约束」复用候选线
+    pt.setPosition(JXG.COORDS_BY_USER, bestQ);
+    return;
   }
   /* 2) 无近线才贴格点：只吸到图上有格线的交叉点（主格线间隔的整数倍），
    * 不吸所有整数点；网格隐藏时不吸附 */
