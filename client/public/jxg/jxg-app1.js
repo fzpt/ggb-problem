@@ -684,6 +684,17 @@ function renderPropPanel() {
            '<input type="color" id="' + id + '" value="' + escAttr(val || '#000000') + '">' +
            (mixed ? '<span class="pval">多值</span>' : '') + '</span></div>';
   }
+  /* 填充色专用行：比 colorRow 多一个“透明”勾选（fillColor 'none'），
+   * 勾选时禁用取色器，取消勾选恢复取色器当前值 */
+  function fillRow(label, id, val, mixed) {
+    var none = !val;   // fillOf 对 'none'/无填充返回 ''
+    return '<div class="prow"><span>' + label + '</span><span class="ctl">' +
+           '<label style="display:inline-flex;align-items:center;gap:3px;font-size:12px;white-space:nowrap;">' +
+           '<input type="checkbox" id="' + id + 'None"' + (!mixed && none ? ' checked' : '') + '>透明</label>' +
+           '<input type="color" id="' + id + '" value="' + escAttr(val || '#f0e442') + '"' +
+           (!mixed && none ? ' disabled' : '') + '>' +
+           (mixed ? '<span class="pval">多值</span>' : '') + '</span></div>';
+  }
   function dashRow(id, val, mixed) {
     var opts = (mixed ? '<option value="">（多值）</option>' : '') + DASH_NAMES.map(function (n, i) {
       return '<option value="' + i + '"' + (!mixed && i === val ? ' selected' : '') + '>' + n + '</option>';
@@ -731,7 +742,7 @@ function renderPropPanel() {
   }
   if (multi ? allClosed : isClosed) {
     var fM = multi ? eachVal(fillOf) : { val: fillOf(o), mixed: false };
-    h += colorRow('填充色', 'ppFill', fM.val || '#f0e442', fM.mixed);
+    h += fillRow('填充色', 'ppFill', fM.val, fM.mixed);
     var foM = multi ? eachVal(fillOpOf) : { val: fillOpOf(o), mixed: false };
     h += rangeRow('填充不透明度', 'ppFillOp', 'ppFillOpV', foM.val, 0, 100, 5, '%', foM.mixed);
   }
@@ -762,7 +773,16 @@ function renderPropPanel() {
     var w = document.getElementById('ppWidth');
     if (w && took('ppWidth')) { st.w = parseInt(w.value, 10); document.getElementById('ppWidthV').textContent = w.value; }
     var fc2 = document.getElementById('ppFill');
-    if (fc2 && took('ppFill')) st.fc = fc2.value;
+    var fcNone = document.getElementById('ppFillNone');
+    if (fcNone && took('ppFillNone')) {
+      /* 勾选=透明（fillColor 'none'）；取消勾选=取色器当前值 */
+      st.fc = fcNone.checked ? 'none' : (fc2 ? fc2.value : 'none');
+      if (fc2) fc2.disabled = fcNone.checked;
+    } else if (fc2 && took('ppFill')) {
+      /* 拖取色器时若勾着透明，先取消勾选再上色 */
+      if (fcNone && fcNone.checked) { fcNone.checked = false; fc2.disabled = false; }
+      st.fc = fc2.value;
+    }
     var fo2 = document.getElementById('ppFillOp');
     if (fo2 && took('ppFillOp')) { st.fo = parseInt(fo2.value, 10) / 100; document.getElementById('ppFillOpV').textContent = fo2.value + '%'; }
     var fz = document.getElementById('ppFontSize');
@@ -785,12 +805,20 @@ function renderPropPanel() {
     });
     board.update();
   }
-  ['ppColor', 'ppDash', 'ppWidth', 'ppFill', 'ppFillOp', 'ppFontSize', 'ppFont', 'ppPeriod'].forEach(function (id) {
+  ['ppColor', 'ppDash', 'ppWidth', 'ppFill', 'ppFillNone', 'ppFillOp', 'ppFontSize', 'ppFont', 'ppPeriod'].forEach(function (id) {
     var elm = document.getElementById(id);
     if (!elm) return;
-    elm.addEventListener('input', function () { touchedFields[id] = true; markHist(); readAndApply(); });
-    elm.addEventListener('change', function () { touchedFields[id] = true; markHist(); readAndApply(); });
+    elm.addEventListener('input', function () { touchedFields[id] = true; preFieldHook(id); markHist(); readAndApply(); });
+    elm.addEventListener('change', function () { touchedFields[id] = true; preFieldHook(id); markHist(); readAndApply(); });
   });
+  /* 取色器变动时若勾着“透明”：先取消勾选并启用取色器，
+   * 否则 readAndApply 会走 ppFillNone 分支继续写 'none' */
+  function preFieldHook(id) {
+    if (id !== 'ppFill') return;
+    var n = document.getElementById('ppFillNone');
+    var pc = document.getElementById('ppFill');
+    if (n && n.checked && pc) { n.checked = false; pc.disabled = false; }
+  }
   /* 名称改名：回车或 ✓ 应用；成功后面板重挂到新对象（重建后旧引用失效） */
   var ppName = document.getElementById('ppName');
   var ppNameOk = document.getElementById('ppNameOk');
