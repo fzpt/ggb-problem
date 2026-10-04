@@ -2563,7 +2563,12 @@ function finishMarquee() {
   if (!mq) return;
   var dx = Math.abs(mq.x1 - mq.x0), dy = Math.abs(mq.y1 - mq.y0);
   if (dx < 4 && dy < 4) {
-    /* 纯点击：按普通点选处理（shift/ctrl 追加），不清空已有选择 */
+    /* 纯点击（按下松手无位移）：空白处点击 = 取消选择，与选择模式一致；
+     * Shift/Ctrl 按住则保留（追加语义） */
+    if (!mq.addKey) {
+      clearSelection();
+      updateSelectHint();
+    }
     return;
   }
   var ux0 = (Math.min(mq.x0, mq.x1) - board.origin.scrCoords[1]) / board.unitX;
