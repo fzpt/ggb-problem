@@ -23,7 +23,7 @@ export default function ProblemList() {
     updateProblem,
     logout,
     tagVocab,
-    editProblemId,
+    editingIds,
     locks,
     startEdit,
     forceEdit,
@@ -47,11 +47,11 @@ export default function ProblemList() {
   };
 
   const editButton = (problem) => {
-    if (editProblemId === problem.id) {
+    if (editingIds.includes(problem.id)) {
       return (
         <button
           className="problem-edit editing"
-          onClick={(e) => { e.stopPropagation(); stopEdit(); }}
+          onClick={(e) => { e.stopPropagation(); stopEdit(problem.id); }}
           title="退出编辑状态（其他用户即可编辑）"
         >
           退出

@@ -51,30 +51,28 @@ export function AppProvider({ children }) {
       return id;
     })()
   );
-  const [editProblemId, setEditProblemId] = useState(null);
-  const editProblemIdRef = useRef(null);
-  editProblemIdRef.current = editProblemId;
-  // problemId -> { holder_email, heartbeat_at }（含自己的锁，展示时排除当前编辑题）
+  // 同时可编辑多道题：每题各持一把编辑锁（原先单题编辑态，切题即释放，不符合使用习惯）
+  const [editingIds, setEditingIds] = useState([]);
+  const editingIdsRef = useRef([]);
+  editingIdsRef.current = editingIds;
+  // problemId -> { holder_email, heartbeat_at }（含自己的锁；自己在编辑的题走"退出"分支，不受影响）
   const [locks, setLocks] = useState({});
 
-  const releaseEditLock = useCallback(async () => {
-    const cur = editProblemIdRef.current;
-    if (!cur) return;
-    setEditProblemId(null);
+  const releaseEditLock = useCallback(async (id) => {
+    if (id == null) return;
+    setEditingIds((prev) => prev.filter((x) => x !== id));
     try {
-      await releaseProblemLock(cur, instanceIdRef.current);
+      await releaseProblemLock(id, instanceIdRef.current);
     } catch (e) {
       console.error('release lock failed', e);
     }
   }, []);
 
   const startEdit = useCallback(async (id) => {
-    if (editProblemIdRef.current && editProblemIdRef.current !== id) {
-      await releaseEditLock();
-    }
+    if (editingIdsRef.current.indexOf(id) >= 0) return { ok: true };   // 已在编辑中
     try {
       await acquireProblemLock(id, instanceIdRef.current, false);
-      setEditProblemId(id);
+      setEditingIds((prev) => (prev.indexOf(id) >= 0 ? prev : [...prev, id]));
       return { ok: true };
     } catch (e) {
       if (e.lockedBy) return { ok: false, lockedBy: e.lockedBy, since: e.since };
@@ -82,12 +80,12 @@ export function AppProvider({ children }) {
       setLog('获取编辑锁失败：' + (e.message || '未知错误'));
       return { ok: false, error: e.message };
     }
-  }, [releaseEditLock, setLog]);
+  }, [setLog]);
 
   const forceEdit = useCallback(async (id) => {
     try {
       await acquireProblemLock(id, instanceIdRef.current, true);
-      setEditProblemId(id);
+      setEditingIds((prev) => (prev.indexOf(id) >= 0 ? prev : [...prev, id]));
       return { ok: true };
     } catch (e) {
       setLog('强制接管编辑失败：' + (e.message || '未知错误'));
@@ -95,25 +93,27 @@ export function AppProvider({ children }) {
     }
   }, [setLog]);
 
-  const stopEdit = useCallback(async () => {
-    await releaseEditLock();
+  const stopEdit = useCallback(async (id) => {
+    await releaseEditLock(id);
   }, [releaseEditLock]);
 
   // 心跳续期；若 409 说明被其他实例强制接管，本页自动退出编辑态。
   // 窗口不关，锁就一直持有：10s 定时心跳之外，标签页切回可见/网络恢复时立即补一次
   //（后台标签页浏览器会把定时器节流到 1 分钟一次，仅靠 setInterval 会误判失联）
   useEffect(() => {
-    if (!user || !editProblemId) return undefined;
+    if (!user || editingIds.length === 0) return undefined;
     const beat = async () => {
-      try {
-        await acquireProblemLock(editProblemId, instanceIdRef.current, false);
-      } catch (e) {
-        if (e.lockedBy) {
-          setEditProblemId(null);
-          setLog(`该题的编辑权已被 ${e.lockedBy} 接管，本页面已切换为只读。`);
-          setStatus({ text: '编辑权已被接管', color: '#555555' });
+      await Promise.all(editingIdsRef.current.map(async (id) => {
+        try {
+          await acquireProblemLock(id, instanceIdRef.current, false);
+        } catch (e) {
+          if (e.lockedBy) {
+            setEditingIds((prev) => prev.filter((x) => x !== id));
+            setLog(`「${(problemsRef.current.find((p) => p.id === id) || {}).name || id}」的编辑权已被 ${e.lockedBy} 接管，本页面已切换为只读。`);
+            setStatus({ text: '编辑权已被接管', color: '#555555' });
+          }
         }
-      }
+      }));
     };
     const timer = setInterval(beat, 10000);
     const onVisible = () => {
@@ -126,7 +126,7 @@ export function AppProvider({ children }) {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', beat);
     };
-  }, [user, editProblemId, setLog, setStatus]);
+  }, [user, editingIds.length, setLog, setStatus]);
 
   // 定期拉取锁列表，供题目列表展示"正在被谁编辑"
   useEffect(() => {
@@ -244,9 +244,8 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (!user) return undefined;
     const onUnload = () => {
-      // 同步释放当前编辑锁（服务端另有 35s 失联兜底）
-      const lockedId = editProblemIdRef.current;
-      if (lockedId) {
+      // 同步释放全部编辑锁（服务端另有 35s 失联兜底）
+      for (const lockedId of editingIdsRef.current) {
         try {
           fetch(`/api/problems/${lockedId}/unlock`, {
             method: 'POST',
@@ -293,7 +292,7 @@ export function AppProvider({ children }) {
     }
     dirtyIdsRef.current.clear();
     retriesRef.current.clear();
-    setEditProblemId(null);
+    setEditingIds([]);
     setProblems([]);
     setActiveProblemId(null);
     setDrawnProblemId(null);
@@ -322,8 +321,8 @@ export function AppProvider({ children }) {
   const deleteProblem = useCallback((id) => {
     dirtyIdsRef.current.delete(id);
     retriesRef.current.delete(id);
-    if (editProblemIdRef.current === id) {
-      setEditProblemId(null);
+    if (editingIdsRef.current.indexOf(id) >= 0) {
+      setEditingIds((prev) => prev.filter((x) => x !== id));
       releaseProblemLock(id, instanceIdRef.current).catch(() => {});
     }
     setProblems(prev => {
@@ -336,12 +335,8 @@ export function AppProvider({ children }) {
     deleteProblemRemote(id).catch((e) => console.error('delete problem failed', id, e));
   }, [activeProblemId]);
 
+  // 切换查看题目不释放任何编辑锁：多道题可同时保持编辑态，各自点"退出"才释放
   const selectProblem = useCallback((id) => {
-    // 切换到其他题目时释放当前编辑锁（防呆：未点"退出"直接切走）
-    if (editProblemIdRef.current && editProblemIdRef.current !== id) {
-      setEditProblemId(null);
-      releaseProblemLock(editProblemIdRef.current, instanceIdRef.current).catch(() => {});
-    }
     setActiveProblemId(id);
     saveActiveProblemId(id).catch(() => {});
   }, []);
@@ -374,7 +369,7 @@ export function AppProvider({ children }) {
       setDrawnProblemId,
       onAuth,
       logout,
-      editProblemId,
+      editingIds,
       locks,
       startEdit,
       forceEdit,

@@ -105,7 +105,7 @@ const [currentAttrs, setCurrentAttrs] = useState('');
 const [showAttrs, setShowAttrs] = useState(true);
 const [toast, setToast] = useState(null);
 const toastTimerRef = useRef(null);
-  const { activeProblem, updateProblem, setStatus, setLog, setDrawnProblemId, editProblemId } = useApp();
+  const { activeProblem, updateProblem, setStatus, setLog, setDrawnProblemId, editingIds } = useApp();
   const prevIdRef = useRef(null);
   // 上一题是否是编辑态：切题时只为编辑态的题目 flush 画布改动
   const prevEditableRef = useRef(false);
@@ -118,7 +118,7 @@ const toastTimerRef = useRef(null);
 
   const commands = activeProblem?.commands || '';
   const { name, ggbState } = activeProblem || {};
-  const editable = activeProblem?.id != null && activeProblem.id === editProblemId;
+  const editable = activeProblem?.id != null && editingIds.includes(activeProblem.id);
 
   activeIdRef.current = activeProblem?.id || null;
   editableRef.current = editable;

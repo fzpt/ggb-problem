@@ -33,7 +33,7 @@ export default function JxgViewer() {
   const [showCommands, setShowCommands] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
-  const { activeProblem, updateProblem, setLog, editProblemId, setDrawnProblemId } = useApp();
+  const { activeProblem, updateProblem, setLog, editingIds, setDrawnProblemId } = useApp();
   // 最近一次从 iframe 上报/下发的步骤：用于区分"画板自身变更"与"AI 调整等外部变更"
   const lastIframeStepsRef = useRef(null);
   // init 握手守卫：同一道题只下发一次 jxg:init（iframe 的 ready 重试会多次到达）
@@ -42,7 +42,7 @@ export default function JxgViewer() {
   const activeProblemRef = useRef(activeProblem);
 
   const { name, jxgSteps } = activeProblem || {};
-  const editable = activeProblem?.id != null && activeProblem.id === editProblemId;
+  const editable = activeProblem?.id != null && editingIds.includes(activeProblem.id);
   editableRef.current = editable;
   // 切题时重置 init 守卫（iframe 不重载，靠新的 init 注入新题步骤）
   useEffect(() => { initedForRef.current = null; }, [activeProblem?.id]);

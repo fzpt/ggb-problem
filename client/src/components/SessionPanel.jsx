@@ -12,7 +12,7 @@ export default function SessionPanel() {
     setStatus,
     drawnProblemId,
     setDrawnProblemId,
-    editProblemId,
+    editingIds,
   } = useApp();
 
   const [refining, setRefining] = useState(false);
@@ -33,7 +33,7 @@ export default function SessionPanel() {
 
   const { id, ocrText, commands, refineHistory, refineInput } = activeProblem;
   const llmProvider = activeProblem.llmProvider || 'kimi';
-  const editable = id === editProblemId;
+  const editable = editingIds.includes(id);
   const isJxg = activeProblem.engine === 'jxg';
 
   const setRefineInput = (value) => updateProblem(id, { refineInput: value });
