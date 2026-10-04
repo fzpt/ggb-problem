@@ -160,6 +160,7 @@ function finishPolygon() {
   polyPts = [];
   clearPolyPreview();   // 预览边/填充被正式多边形取代
   clearFlashes();
+  lastPolyFinishMs = Date.now();   // 供 mousedown 吞掉双击结束的第二次按下
   setStatus('已创建多边形。', true);
   document.getElementById('hint').textContent = HINTS.polygon;
 }
@@ -1448,6 +1449,7 @@ board.on('down', function (e) {
 
   /* 双击检测：多边形模式下双击某处，直接用已有顶点闭合多边形 */
   var nowMs = Date.now();
+  var prevDownX = lastDownX, prevDownY = lastDownY;   // 上一次按下的位置（更新前取）
   var isDbl = (mode === 'polygon') && polyPts.length >= 3 &&
               (nowMs - lastDownTime < 450) &&
               Math.hypot(sx - lastDownX, sy - lastDownY) < 12;
@@ -2054,6 +2056,9 @@ board.on('down', function (e) {
         '已选第 ' + pendingPts.length + ' 点' + reuseLabel(r3a) + '（第 2 点决定圆弧走哪一侧），还需 ' + (3 - pendingPts.length) + ' 点。';
     }
   } else if (mode === 'polygon') {
+    /* 双击结束的第二次按下只作为“结束”，不得紧接着以同一点开新多边形 */
+    if (lastPolyFinishMs && nowMs - lastPolyFinishMs < 450 &&
+        Math.hypot(sx - prevDownX, sy - prevDownY) < 12) return;
     var rp = pickOrCreatePoint(x, y, sx, sy);
     /* 点中起点 → 自动闭合 */
     if (polyPts.length >= 3 && rp.point.id === polyPts[0].id) { finishPolygon(); return; }

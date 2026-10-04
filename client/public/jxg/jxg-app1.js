@@ -1017,6 +1017,7 @@ var marqueeState = null;      // 独立框选工具的拉框暂存 {x0,y0,x1,y1,
 var rightPan = null;         // 右键拖动平移视图暂存 {sx,sy,moved}
 var suppressCtxOnce = false; // 右键拖动松手后抑制一次 contextmenu
 var lastDownTime = 0, lastDownX = 0, lastDownY = 0;  // 双击检测（多边形双击结束）
+var lastPolyFinishMs = 0;   // 多边形闭合时刻：双击结束的第二次按下不得另起新多边形
 var lastListRefresh = 0;     // 对象列表节流刷新的时间戳
 
 /* ---------- 对象列表自动刷新：任何增删后更新 ---------- */
