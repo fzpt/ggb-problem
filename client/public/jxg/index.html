@@ -91,9 +91,10 @@
     /* opacity: 0.6; */
 }
 
-.jxgbox :focus {
-    outline-width: 0.5px;
-    outline-style: dotted;
+#jxgbox :focus {
+    /* 禁掉 SVG 节点的 focus 描边：Chrome 会把细点线 outline 渲染成
+     * 贴在元素包围盒上的黑色实线方框（选中椭圆/圆/二次曲线时像"黑边框"） */
+    outline: none;
 }
 
 /* CSS rules for the navigation bar */

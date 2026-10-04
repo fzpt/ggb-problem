@@ -1761,6 +1761,13 @@ board.on('up', function () {
   var blankClick = (mode === 'select' && panState && !panState.moved && !blankDownAddKey);
   panState = null;
   rightPan = null;
+  /* JSXGraph 原生悬停高亮（浅蓝）清除：按中非点对象时我们关闭了原生拖拽，
+   * mouseup 后它不会被清除，一直盖在选中色上；每次 mouseup 统一清掉。
+   * 悬停时的浅蓝由 mouseover 重新给出，不受影响 */
+  try {
+    selectedObjs.forEach(function (o) { if (o && o.noHighlight) o.noHighlight(); });
+    depSelected.forEach(function (o) { if (o && o.noHighlight) o.noHighlight(); });
+  } catch (e) {}
   if (blankClick) {
     clearSelection();
     updateSelectHint();
@@ -1886,6 +1893,9 @@ var singleDrag = null;  // 单点原生拖拽：按下命中点时存"拖拽前"
 var textDragPre = null;  // 表达式文本原生拖拽：同样按下时存快照，up 时真移动了入栈
 function highlightOn(o) {
   o._selBackup = saveVis(o);
+  /* 清掉 JSXGraph 原生悬停高亮（浅蓝）：按中非点对象时我们关闭了原生拖拽，
+   * mouseup/mouseout 不会清除它，会一直盖在选中色上面；选中即用自有红色 */
+  try { if (o.noHighlight) o.noHighlight(); } catch (e) {}
   try {
     /* 封闭复合对象（圆/圆弧/二次曲线/多边形等）选中只把边缘标红：
      * 不改填充色（否则整片覆盖区域标红）、不加粗描边（否则外圈像黑框）；
@@ -1920,6 +1930,7 @@ function isDepSelected(o) {
 }
 function highlightDepOn(o) {
   o._depSelBackup = saveVis(o);
+  try { if (o.noHighlight) o.noHighlight(); } catch (e) {}
   try {
     /* 与主动选中一致：封闭复合对象只标边缘，不改填充 */
     var closed = isClosedComposite(o);
