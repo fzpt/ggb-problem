@@ -1542,8 +1542,7 @@ var HINTS = {
   rotate:  '当前工具：旋转 — 先点击一个点作为旋转中心（角度在工具栏右侧输入，逆时针为正）。',
   rotate_pick: '已选旋转中心 — 点选要旋转的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
-  polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
-  delete:  '当前工具：删除 — 点击某个图形即可删除它（坐标轴删不掉）；删除点会连带删除依赖它的图形。'
+  polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。'
 };
 
 /* ---------- 选择 / 吸附已有'点的支持 ---------- */
@@ -1576,6 +1575,7 @@ function clearFlashes() {
   flashed = [];
 }
 var selectedObjs = [];   // 选择工具当前选中的对象（可多选）
+var depSelected = [];    // 依赖联动选中（紫色）：依赖选中对象的对象，跟随高亮但不进 selectedObjs
 var pendingSingleSel = null;  // 在已选对象上按下（未加 Shift）：松开且无拖拽时收拢为单选
 var multiDrag = null;  // 多选拖拽会话
 var singleDrag = null;  // 单点原生拖拽：按下命中点时存"拖拽前"快照，up 时真移动了才入栈
@@ -1605,6 +1605,50 @@ function highlightOff(o) {
   try { if (o._selBackup) o.setAttribute(o._selBackup); } catch (e) {}
   delete o._selBackup;
 }
+/* ---------- 依赖联动选中（紫色） ----------
+ * 选中某对象时，把依赖它的对象一并联动选中，与主动选中（红）区分；
+ * 紫色对象不属于 selectedObjs：不参与移动/属性面板，但删除主动选中会级联删掉它们。 */
+var DEP_SEL_COLOR = '#af52de';
+function isDepSelected(o) {
+  for (var i = 0; i < depSelected.length; i++) if (depSelected[i].id === o.id) return true;
+  return false;
+}
+function highlightDepOn(o) {
+  o._depSelBackup = saveVis(o);
+  try {
+    /* 与主动选中一致：封闭复合对象只标边缘，不改填充 */
+    var closed = isClosedComposite(o);
+    var attrs = { strokeColor: DEP_SEL_COLOR };
+    if (!closed) attrs.fillColor = DEP_SEL_COLOR;
+    o.setAttribute(attrs);
+  } catch (e) {}
+}
+function highlightDepOff(o) {
+  try { if (o._depSelBackup) o.setAttribute(o._depSelBackup); } catch (e) {}
+  delete o._depSelBackup;
+}
+/* 依据当前 selectedObjs 重算联动选中集（选中集变化的统一出口） */
+function recomputeDepSelection() {
+  depSelected.forEach(highlightDepOff);
+  depSelected = [];
+  if (selectedObjs.length) {
+    var prim = {}, depMap = {};
+    selectedObjs.forEach(function (o) { if (o) prim[o.id] = true; });
+    selectedObjs.forEach(function (o) {
+      if (!o || !board.objects[o.id]) return;
+      var dd = collectDependents(o.id);
+      Object.keys(dd).forEach(function (id) {
+        if (!prim[id] && !depMap[id] && board.objects[id]) depMap[id] = true;
+      });
+    });
+    Object.keys(depMap).forEach(function (id) {
+      var o = board.objects[id];
+      depSelected.push(o);
+      highlightDepOn(o);
+    });
+  }
+  syncListSelection();
+}
 /* ---------- 拖点贴线的候选高亮（橙色） ----------
  * 与选中红色互不干扰：曲线已处于选中态时保持红色、不改色；
  * 松手/拖离/切模式时恢复。 */
@@ -1613,7 +1657,7 @@ function candHighlightOn(o) {
   if (!o || dragCandCurve === o) return;
   candHighlightOff();
   dragCandCurve = o;
-  if (o._selBackup) return;   // 已处于选中红色：保持，不改色
+  if (o._selBackup || o._depSelBackup) return;   // 已处于选中（红/紫）：保持，不改色
   o._candBackup = saveVis(o);
   try {
     /* 与选中高亮一致：封闭复合对象只把边缘标橙，不改填充、不加粗 */
@@ -1659,6 +1703,7 @@ function applyDrivenGray(o) {
 function clearSelection() {
   selectedObjs.forEach(highlightOff);
   selectedObjs = [];
+  recomputeDepSelection();
   syncListSelection();
 }
 function isSelected(o) {
@@ -1669,6 +1714,7 @@ function selectSingle(o) {
   clearSelection();
   selectedObjs = [o];
   highlightOn(o);
+  recomputeDepSelection();
   updateSelectHint();
   syncListSelection();
   syncPropPanelToSelection();
@@ -1678,6 +1724,7 @@ function toggleSelect(o) {
   for (var i = 0; i < selectedObjs.length; i++) if (selectedObjs[i].id === o.id) { idx = i; break; }
   if (idx >= 0) { highlightOff(selectedObjs[idx]); selectedObjs.splice(idx, 1); }
   else { selectedObjs.push(o); highlightOn(o); }
+  recomputeDepSelection();
   updateSelectHint();
   syncListSelection();
   syncPropPanelToSelection();
@@ -1707,16 +1754,18 @@ function syncListSelection() {
       var id = rows[i].getAttribute('data-id');
       var o = id && board.objects[id];
       rows[i].classList.toggle('is-selected', !!(o && isSelected(o)));
+      rows[i].classList.toggle('is-dep-selected', !!(o && !isSelected(o) && isDepSelected(o)));
     }
   } catch (e) {}
 }
 function updateSelectHint() {
   var el = document.getElementById('hint');
+  var depTxt = depSelected.length ? '（含 ' + depSelected.length + ' 个依赖对象联动选中，紫色）' : '';
   if (selectedObjs.length === 0) el.textContent = HINTS.select;
   else if (selectedObjs.length === 1)
-    el.textContent = '已选中：' + describeObj(selectedObjs[0]) + '（Shift+点击可多选；点击空白处取消选择）';
+    el.textContent = '已选中：' + describeObj(selectedObjs[0]) + depTxt + '（Shift+点击可多选；点击空白处取消选择）';
   else
-    el.textContent = '已选中 ' + selectedObjs.length + ' 个对象：拖动其中任意点可一起移动；Shift+点击增减选择；点击空白处取消选择。';
+    el.textContent = '已选中 ' + selectedObjs.length + ' 个对象' + depTxt + '：拖动其中任意点可一起移动；Shift+点击增减选择；点击空白处取消选择。';
 }
 /* 兼容旧名单选入口 */
 function selectObject(o) { selectSingle(o); }
@@ -2506,6 +2555,7 @@ function finishMarquee() {
       added++;
     }
   }
+  recomputeDepSelection();
   updateSelectHint();
   syncListSelection();
   if (added > 0) setStatus('框选选中 ' + selectedObjs.length + ' 个对象（Shift+框选可追加）。', true);

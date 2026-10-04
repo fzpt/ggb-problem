@@ -5,6 +5,7 @@ document.querySelectorAll('#toolbar button[data-action]').forEach(function (btn)
     var a = btn.getAttribute('data-action');
     if (a === 'undo') doUndo();
     else if (a === 'redo') doRedo();
+    else if (a === 'delete') deleteSelection();
     else if (a === 'props-toggle') togglePropPanel();
     else if (a === 'traceanim') { traceAnim.running ? stopTraceAnimation() : startTraceAnimation(); }
   });
@@ -28,7 +29,10 @@ document.addEventListener('keydown', function (e) {
     var k = (e.key || '').toLowerCase();
     if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
     else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); }
+    return;
   }
+  /* Del：删除当前选中的对象（含级联依赖）；未选中时提示 */
+  if (e.key === 'Delete' || e.key === 'Del') { e.preventDefault(); deleteSelection(); }
 });
 /* ---------- 工具栏：模式切换 + 工具组（线段组 / 平行线组） ---------- */
 var TOOL_GROUPS = {
@@ -732,7 +736,8 @@ function refreshObjectList() {
     catch (e) { d = (o.elType || '图形') + ' ' + (o.name || ''); }
     var vis = o.getAttribute('visible') !== false;
     var selCls = isSelected(o) ? ' is-selected' : '';
-    html += '<div class="objrow' + (vis ? '' : ' is-hidden') + selCls + '" draggable="true" data-id="' + escHtml(id) + '" title="双击修改名称">' +
+    var depCls = (!isSelected(o) && isDepSelected(o)) ? ' is-dep-selected' : '';
+    html += '<div class="objrow' + (vis ? '' : ' is-hidden') + selCls + depCls + '" draggable="true" data-id="' + escHtml(id) + '" title="双击修改名称">' +
       '<span class="visdot' + (vis ? '' : ' off') + '" data-id="' + escHtml(id) + '" title="显示 / 隐藏"></span>' +
       '<span class="objdef">' + escHtml(d) + '</span></div>';
   });
@@ -1546,7 +1551,6 @@ board.on('down', function (e) {
     }
     return;
   }
-  if (mode === 'delete') { handleDeleteAt(sx, sy, x, y); return; }
 
   /* 交点工具：依次点选两条曲线，生成联动的交点 */
   if (mode === 'intersect') {
@@ -2106,12 +2110,22 @@ board.on('down', function (e) {
   }
 });
 
-function handleDeleteAt(sx, sy, x, y) {
-  var o = findObjectAt(sx, sy, x, y);
-  if (!o) { setStatus('这里没有可删除的图形。', false); return; }
+/* 删除当前选中的对象（动作式：删除按钮 / Del 键触发，不是模式）。
+ * 未选中时提示先选择；删除会级联删掉依赖选中对象的对象。 */
+function deleteSelection() {
+  if (typeof READ_ONLY !== 'undefined' && READ_ONLY) return;
+  var roots = selectedObjs.filter(function (o) { return o && board.objects[o.id]; });
+  if (!roots.length) { setStatus('请先在选择模式下选中要删除的对象，再点删除按钮或按 Del 键。', false); return; }
+  deleteObjects(roots.map(function (o) { return o.id; }));
+}
+/* 级联删除一批根对象：依赖它们的对象一并删除，避免残留坏引用 */
+function deleteObjects(rootIds) {
   pushHistory();   // 先记快照，支持撤销删除
-  /* 级联删除：依赖该图形的对象一并删除，避免残留坏引用 */
-  var doomed = collectDependents(o.id);
+  var doomed = {};
+  rootIds.forEach(function (rid) {
+    var d = collectDependents(rid);
+    Object.keys(d).forEach(function (k) { doomed[k] = true; });
+  });
   /* 三点圆弧被删时，其隐藏圆心一并清掉（圆心未登记在 createdIds 里） */
   Object.keys(doomed).forEach(function (id) {
     var ac = board.objects[id];
@@ -2149,10 +2163,14 @@ function handleDeleteAt(sx, sy, x, y) {
   });
   /* 被删对象若在选择集合里，一并移出选择 */
   selectedObjs = selectedObjs.filter(function (s) { return !doomed[s.id]; });
+  recomputeDepSelection();
   createdIds = createdIds.filter(function (id) { return !doomed[id] && !!board.objects[id]; });
   refreshObjectList();
+  syncListSelection();
   flashed = flashed.filter(function (p) { return !!board.objects[p.id]; });
-  setStatus('已删除图形' + (Object.keys(doomed).length > 1 ? '（含 ' + (Object.keys(doomed).length - 1) + ' 个依赖图形）' : '') + '。', true);
+  updateSelectHint();
+  syncPropPanelToSelection();
+  setStatus('已删除 ' + Object.keys(doomed).length + ' 个图形' + (Object.keys(doomed).length > rootIds.length ? '（含级联依赖）' : '') + '。', true);
 }
 
 /* ============================================================

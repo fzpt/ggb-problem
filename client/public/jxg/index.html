@@ -296,6 +296,8 @@
   .objrow:hover { background: #eef4fd; }
   .objrow.is-selected { background: #dbeafe; }
   .objrow.is-selected:hover { background: #cfe3fb; }
+  .objrow.is-dep-selected { background: #f6e9fd; }
+  .objrow.is-dep-selected:hover { background: #eed7fa; }
   .objrow.is-hidden .objdef { color: #9aa0a6; }
   .visdot { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #1f6feb; background: #1f6feb; cursor: pointer; }
   .visdot.off { background: #fff; border-color: #c3c9d1; }
@@ -536,7 +538,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="8.6" ry="5.4"/><circle cx="20" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.6" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="6.4" cy="16.9" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="6.6" r="1.5" fill="currentColor" stroke="none"/></svg>
         </button>
         <span class="toolsep"></span>
-        <button class="tool" data-mode="delete" title="删除：点击某个图形删除它（删点会连带删除依赖图形）" aria-label="删除">
+        <button class="tool" data-action="delete" title="删除：先在选择模式下选中对象（可 Shift 多选），再点此按钮删除；也可按 Del 键" aria-label="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
         <span class="toolsep"></span>
