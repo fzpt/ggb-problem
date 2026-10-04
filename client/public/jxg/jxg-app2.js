@@ -789,6 +789,48 @@ function refreshObjectList() {
       if (!snapped) return ins;
     }
   }
+  /* 依赖序校验：newOrder 中任何对象都不得排在其依赖对象之前（依赖 = 直接 + 多级传递）。
+   * 只校验被拖对象与其余对象的配对（其余对象间相对顺序未变，原有顺序天然合法）。
+   * 返回首个违规的中文描述，合法返回 null。 */
+  function depOrderViolation(moving, newOrder) {
+    var pos = {};
+    newOrder.forEach(function (oid, i) { pos[oid] = i; });
+    var isMv = {};
+    moving.forEach(function (id) { isMv[id] = true; });
+    for (var k = 0; k < newOrder.length; k++) {
+      var oid = newOrder[k];
+      if (isMv[oid]) continue;              // 块内成员相对顺序保持，两两不校验
+      var o = board.objects[oid];
+      if (!o) continue;
+      for (var j = 0; j < moving.length; j++) {
+        var mid = moving[j];
+        var m = board.objects[mid];
+        if (!m) continue;
+        /* o 依赖被拖对象 ⇒ o 必须排在它后面，不得移到它前面 */
+        if (pos[oid] < pos[mid] && dependsOnId(o, mid))
+          return '「' + describeDef(o) + '」依赖于被拖动的对象，被依赖的对象必须排在前面';
+        /* 被拖对象依赖 o ⇒ 被拖对象必须排在 o 后面，不得移到它前面 */
+        if (pos[mid] < pos[oid] && dependsOnId(m, oid))
+          return '被拖动的对象依赖于「' + describeDef(o) + '」，不能把它移到该对象之前';
+      }
+    }
+    return null;
+  }
+  /* 拖拽悬停时预览该落点是否合法：不合法不显示插入提示（松手同样会被拒绝） */
+  function dropViolationAt(targetId, after) {
+    var moving = dragIds.slice();
+    var rest = listOrder.filter(function (oid) { return moving.indexOf(oid) < 0; });
+    var ti = rest.indexOf(targetId);
+    if (ti < 0) return null;
+    var save = listOrder;
+    listOrder = rest;                       // snapOutOfGroups 按全局 listOrder 取块位置
+    var ins;
+    try { ins = snapOutOfGroups(after ? ti + 1 : ti); }
+    finally { listOrder = save; }
+    var newOrder = rest.slice();
+    moving.forEach(function (oid, k) { newOrder.splice(ins + k, 0, oid); });
+    return depOrderViolation(moving, newOrder);
+  }
   box.addEventListener('dragstart', function (e) {
     var row = rowOf(e.target);
     if (!row) return;
@@ -801,6 +843,12 @@ function refreshObjectList() {
     if (!dragIds.length) return;
     var row = rowOf(e.target);
     if (!row || dragIds.indexOf(row.getAttribute('data-id')) >= 0) { clearHints(); return; }
+    /* 依赖序非法的落点：不显示插入提示，松手也会被拒绝 */
+    if (dropViolationAt(row.getAttribute('data-id'),
+        (e.clientY - row.getBoundingClientRect().top) > row.getBoundingClientRect().height / 2)) {
+      clearHints();
+      return;
+    }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
     clearHints();
@@ -822,11 +870,21 @@ function refreshObjectList() {
       var targetId = row.getAttribute('data-id');
       var after = !!row._dropAfter;
       var moving = dragIds.slice();
+      var prevOrder = listOrder;
       listOrder = listOrder.filter(function (oid) { return moving.indexOf(oid) < 0; });
       var ti = listOrder.indexOf(targetId);
       if (ti < 0) { dragIds = []; return; }
       var ins = snapOutOfGroups(after ? ti + 1 : ti);
-      moving.forEach(function (oid, k) { listOrder.splice(ins + k, 0, oid); });
+      var newOrder = listOrder.slice();
+      moving.forEach(function (oid, k) { newOrder.splice(ins + k, 0, oid); });
+      var viol = depOrderViolation(moving, newOrder);
+      if (viol) {
+        listOrder = prevOrder;              // 还原，顺序不变
+        try { setStatus(viol + '。', false); } catch (e) {}
+        dragIds = [];
+        return;
+      }
+      listOrder = newOrder;
       refreshObjectList();
     }
     dragIds = [];

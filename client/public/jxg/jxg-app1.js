@@ -1176,6 +1176,7 @@ function snapPointToGrid(pt) {
       o = board.objects[createdIds[i]];
       if (!o || !isCurve(o) || o._defKind === 'perpline') continue;
       if (definesPoint(o, pt)) continue;
+      if (curveDependsOn(o, pt)) continue;   // 多级依赖：拖动中不吸到（直接或间接）由该点定义的曲线上
       if (o.getAttribute && o.getAttribute('visible') === false) continue;
       var q = projectPointToCurve(pt.X(), pt.Y(), o);
       if (!q) continue;
