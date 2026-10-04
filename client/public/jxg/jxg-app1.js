@@ -1633,6 +1633,23 @@ function highlightDepOff(o) {
   try { if (o._depSelBackup) o.setAttribute(o._depSelBackup); } catch (e) {}
   delete o._depSelBackup;
 }
+/* 双击约束点（蓝色 glider）：取消约束，原地还原为自由点。
+ * 保留 id/名称/列表身份；序列化自动从 glider 步骤变回 point 步骤，可撤销。 */
+function freeGliderPoint(pt) {
+  if (!pt || pt._defKind !== 'glider') return false;
+  pushHistory();
+  try { pt.free(); } catch (e) { return false; }
+  delete pt._defKind;
+  delete pt._onId;
+  delete pt._polyEdge;
+  /* 颜色从约束蓝还原为自由点默认色 */
+  try { pt.setAttribute({ strokeColor: STYLE_DEFAULTS.pointColor, fillColor: STYLE_DEFAULTS.pointColor }); } catch (e) {}
+  try { board.update(); } catch (e) {}
+  try { refreshObjectList(); } catch (e) {}
+  try { recomputeDepSelection(); } catch (e) {}
+  setStatus('已取消点 ' + (pt.name || '') + ' 的约束，现在是自由点（可撤销）。', true);
+  return true;
+}
 /* 依据当前 selectedObjs 重算联动选中集（选中集变化的统一出口） */
 function recomputeDepSelection() {
   depSelected.forEach(highlightDepOff);

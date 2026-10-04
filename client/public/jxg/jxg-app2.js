@@ -1469,12 +1469,21 @@ board.on('down', function (e) {
   /* 双击检测：多边形模式下双击某处，直接用已有顶点闭合多边形 */
   var nowMs = Date.now();
   var prevDownX = lastDownX, prevDownY = lastDownY;   // 上一次按下的位置（更新前取）
+  var prevDownTime = lastDownTime;
   var isDbl = (mode === 'polygon') && polyPts.length >= 3 &&
               (nowMs - lastDownTime < 450) &&
               Math.hypot(sx - lastDownX, sy - lastDownY) < 12;
   lastDownTime = nowMs; lastDownX = sx; lastDownY = sy;
   blankDownAddKey = false;
   if (isDbl) { finishPolygon(); return; }
+
+  /* 双击约束点（蓝色）：取消约束，原地还原为自由点（选择/框选模式） */
+  if ((mode === 'select' || mode === 'marquee') &&
+      (nowMs - prevDownTime < 450) &&
+      Math.hypot(sx - prevDownX, sy - prevDownY) < 12) {
+    var dblPt = findPointNear(sx, sy);
+    if (dblPt && dblPt._defKind === 'glider') { freeGliderPoint(dblPt); return; }
+  }
 
   /* 用户坐标（select 分支的选区判断需要用到，提前计算） */
   var coords = getUsrCoords(e);
