@@ -140,18 +140,24 @@ function normColor(c) {
  * 不受之后全局样式修改的影响 */
 function collectStyle(el) {
   if (!el || !el.visProp) return null;
+  /* 高亮态（选中红 _selBackup / 依赖紫 _depSelBackup / 吸附候选橙 _candBackup /
+   * 复用闪烁 _flashBackup）下 visProp 是临时覆盖色：快照必须读高亮前备份，
+   * 否则撤销/保存会把红/紫色固化成对象真实样式 */
+  var hb = el._selBackup || el._depSelBackup || el._candBackup || el._flashBackup || null;
   var st = {}, v = el.visProp;
   var isPt = el.elementClass === JXG.OBJECT_CLASS_POINT;
-  var sc = normColor(v.strokecolor);
-  if (sc && sc !== 'none') st.c = v.strokecolor;
+  var scRaw = (hb && hb.strokeColor !== undefined) ? hb.strokeColor : v.strokecolor;
+  var sc = normColor(scRaw);
+  if (sc && sc !== 'none') st.c = scRaw;
   if (!isPt) {
-    st.w = v.strokewidth;
+    st.w = (hb && hb.strokeWidth !== undefined && hb.strokeWidth !== null) ? hb.strokeWidth : v.strokewidth;
     st.d = (v.dash === undefined || v.dash === null) ? 0 : v.dash;
   }
   var isClosed = (el.elType === 'circle' || el.elType === 'polygon' || el.elType === 'circumcircle');
   if (isClosed) {
-    var fc = normColor(v.fillcolor);
-    st.fc = (fc && fc !== 'none') ? v.fillcolor : 'none';
+    var fcRaw = (hb && hb.fillColor !== undefined) ? hb.fillColor : v.fillcolor;
+    var fc = normColor(fcRaw);
+    st.fc = (fc && fc !== 'none') ? fcRaw : 'none';
     var fo = Number(v.fillopacity);
     st.fo = isFinite(fo) ? fo : 0;
   }
