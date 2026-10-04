@@ -22,6 +22,10 @@ document.addEventListener('keydown', function (e) {
     if (isConstructing()) {
       setMode(mode);   // 同模式重入：清空一切拾取态/预览/框选/高亮，并复位提示
       setStatus('已取消当前构建。', true);
+    } else if (selectedObjs.length) {
+      /* 无构建进行时：Esc 取消选中（含依赖联动选中），与 GeoGebra 一致 */
+      clearSelection();
+      updateSelectHint();
     }
     return;
   }
