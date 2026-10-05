@@ -982,20 +982,23 @@ function parsePointDefText(text, cur) {
   /* 允许带 "名称 = " 前缀（与定义行显示一致） */
   var meq = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]*)$/);
   if (meq) t = meq[2].trim();
-  /* (a, b)：按括号深度找顶层逗号，避免误切 Distance(A,B) 这类函数参数 */
-  function splitTopComma(inner) {
-    var depth = 0;
+  /* (a, b)：按括号深度做顶层逗号切分，避免误切 Distance(A,B) 这类函数参数 */
+  /* 按顶层逗号拆成参数数组（忽略函数调用内的逗号） */
+  function splitTopArgs(inner) {
+    var out = [], depth = 0, last = 0;
     for (var i = 0; i < inner.length; i++) {
       var ch = inner[i];
       if (ch === '(' || ch === '[') depth++;
       else if (ch === ')' || ch === ']') depth--;
-      else if (ch === ',' && depth === 0) return [inner.slice(0, i), inner.slice(i + 1)];
+      else if (ch === ',' && depth === 0) { out.push(inner.slice(last, i)); last = i + 1; }
     }
-    return null;
+    out.push(inner.slice(last));
+    return out;
   }
   var m = t.match(/^\(([\s\S]+)\)$/);
   if (m) {
-    var parts = splitTopComma(m[1]);
+    var parts = splitTopArgs(m[1]);
+    if (parts.length !== 2) throw new Error('坐标形式需要 (x, y) 两个表达式');
     if (!parts) throw new Error('坐标形式需要 (x, y) 两个表达式');
     var xs = parts[0].trim(), ys = parts[1].trim();
     var xn = Number(xs), yn = Number(ys);
@@ -1009,13 +1012,19 @@ function parsePointDefText(text, cur) {
   /* Point(对象[, 比例]) / Point(多边形.边N[, 比例]) */
   m = t.match(/^Point\(([\s\S]+)\)$/i);
   if (m) {
-    var args = m[1].split(',');
+    var args = splitTopArgs(m[1]);
     if (args.length > 2) throw new Error('Point 最多 2 个参数');
     var target = args[0].trim();
     var pos;
     if (args.length === 2) {
-      pos = Number(args[1].trim());
-      if (!isFinite(pos)) throw new Error('位置比例必须是数字');
+      var posTxt = args[1].trim();
+      pos = Number(posTxt);
+      if (!isFinite(pos)) {
+        /* 非纯数字 → 按数表达式求值（度量变量/Distance/Length 等） */
+        try { pos = evalMsrExpr(posTxt); }
+        catch (e) { throw new Error('位置比例无效：' + e.message); }
+      }
+      if (!isFinite(pos)) throw new Error('位置比例必须是数字或数表达式');
       pos = Math.max(0, Math.min(1, pos));
     }
     var mp = target.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*[.．]\s*边\s*(\d+)$/);
@@ -1243,7 +1252,7 @@ function renderPropPanel() {
            '<option value="dist"' + (posMode === 'dist' ? ' selected' : '') + '>距起点</option>' +
            '</select>' +
            '<input type="text" id="ppPos" value="' + escAttr(posVal) + '" ' +
-           'title="比例 0~1（0=首端点，1=尾端点）或距首端点距离，回车应用" ' +
+           'title="比例 0~1（0=首端点，1=尾端点）或距首端点距离，支持表达式（如 L1/Length(s)、Distance(A,B)/3），回车应用" ' +
            'style="width:80px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
            '</span></div>';
     }
@@ -1409,8 +1418,11 @@ function renderPropPanel() {
       if (!o || Array.isArray(o) || !board.objects[o.id]) return;
       var slideEl = board.objects[o._onId];
       if (!slideEl || slideEl.elType !== 'segment') return;
-      var v = parseFloat(ppPos.value);
-      if (!isFinite(v)) { setStatus('位置需要输入数字。', false); return; }
+      /* 支持表达式：比例/距起点都按"数表达式"求值（度量变量、Distance、Length 等） */
+      var v;
+      try { v = evalMsrExpr(ppPos.value); }
+      catch (e) { setStatus('位置表达式无效：' + e.message, false); return; }
+      if (!isFinite(v)) { setStatus('位置需要是一个有限的数。', false); return; }
       var t, L;
       if ((o._posMode || 'ratio') === 'ratio') {
         if (v < 0 || v > 1) { setStatus('比例需要在 0~1 之间。', false); return; }
