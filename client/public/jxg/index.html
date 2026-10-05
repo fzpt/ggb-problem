@@ -543,9 +543,10 @@
         <button class="tool" data-mode="mlen" title="长度度量：点击一条线段、圆、圆弧或多边形，生成长度变量 L1、L2…（可在表达式文本里引用）" aria-label="长度度量">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5L16.5 5l3.5 3.5L7.5 21z"/><path d="M7.6 14.4l2.1 2.1M10.5 11.5l2.1 2.1M13.4 8.6l2.1 2.1"/></svg>
         </button>
-        <button class="tool" data-mode="mang" title="角度度量：依次点击三个点（第 2 点为角顶点），生成角度变量 a1、a2…（度，逆时针 0～360；可在表达式文本里引用）" aria-label="角度度量">
+        <button class="tool" data-mode="mang" title="角度度量：依次点击三个点（第 2 点为角顶点），生成角度变量 a1、a2…；方向（≤180/逆时针/顺时针）在工具栏右侧选择" aria-label="角度度量">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 18L6 5.5M6 18L18.5 18"/><path d="M6 12.5A6.5 6.5 0 0 1 11.5 6.2"/><circle cx="6" cy="18" r="1.9" fill="currentColor" stroke="none"/></svg>
         </button>
+        <span id="angDirWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">方向<select id="angDir" title="角度取值方式：≤180 取不超过 180° 的角（与 GeoGebra 一致）；逆时针/顺时针按 第1点→顶点→第2点 的对应方向取 0～360°" style="font-size:12px;padding:2px;border:1px solid #d0d7de;border-radius:4px;"><option value="minor">≤180</option><option value="ccw">逆时针</option><option value="cw">顺时针</option></select></span>
         <button class="tool" data-mode="mtext" title="表达式文本：在工具栏右侧输入表达式（如 2*L1+a1/2），点击空白处放置；内容随度量/图形变化实时更新" aria-label="表达式文本">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13"/></svg>
         </button>

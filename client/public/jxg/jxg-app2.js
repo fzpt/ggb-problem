@@ -98,6 +98,7 @@ function setMode(m) {
   try { document.getElementById('ngonWrap').style.display = (m === 'ngon') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('msrExprWrap').style.display = (m === 'mtext') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('adriveKWrap').style.display = (m === 'adrive') ? 'inline-flex' : 'none'; } catch (e) {}
+  try { document.getElementById('angDirWrap').style.display = (m === 'mang') ? 'inline-flex' : 'none'; } catch (e) {}
   if (m === 'midpoint') seedMidpointFromSelection(preSel);
 }
 function isToolFlyoutOpen(gid) {
@@ -459,8 +460,10 @@ function objectToStepRaw(o) {
   if (o._measure) {
     if (o._measure.kind === 'length')
       return { type: 'measure', id: nm, kind: 'length', of: oname(o._measure.of) };
-    return { type: 'measure', id: nm, kind: 'angle',
+    var mstep = { type: 'measure', id: nm, kind: 'angle',
              p1: oname(o._measure.pts[0]), vertex: oname(o._measure.pts[1]), p2: oname(o._measure.pts[2]) };
+    if (o._measure.dir && o._measure.dir !== 'minor') mstep.dir = o._measure.dir;
+    return mstep;
   }
   if (o._isExprText)
     return { type: 'text', id: nm, at: [r4(o.X()), r4(o.Y())], expr: o._exprText };
@@ -1683,7 +1686,8 @@ board.on('down', function (e) {
     }
     var mpa = pendingPts[0], mpv = pendingPts[1], mpb = pendingPts[2];
     pendingPts = []; pendingReused = false; pendingInter = false; clearFlashes();
-    var am = makeAngleMeasure(mpa, mpv, mpb, nextSeqId('a'));
+    var amDir = (document.getElementById('angDir') || {}).value || 'minor';
+    var am = makeAngleMeasure(mpa, mpv, mpb, nextSeqId('a'), amDir);
     document.getElementById('hint').textContent = HINTS.mang;
     setStatus('已创建' + describeDef(am) + '。', true);
     return;
@@ -1727,7 +1731,7 @@ board.on('down', function (e) {
         if (cpts[0] === bp1.id && cpts[1] === bv.id && cpts[2] === bp2.id) { srcCarrier = cc; break; }
       }
     }
-    if (!srcCarrier) srcCarrier = makeAngleMeasure(bp1, bv, bp2, nextSeqId('a'));
+    if (!srcCarrier) srcCarrier = makeAngleMeasure(bp1, bv, bp2, nextSeqId('a'), 'ccw');
     var dp = makeAngleDrivenPoint(tv, ts, srcCarrier, ak, nextId('P'));
     document.getElementById('hint').textContent = HINTS.adrive;
     setStatus('已创建' + describeDef(dp) + '。', true);
@@ -2962,7 +2966,7 @@ function createRegularPolygon(opts) {
             var mq1 = resolveRef(s.p1, registry, i),
                 mqv = resolveRef(s.vertex, registry, i),
                 mq2 = resolveRef(s.p2, registry, i);
-            el = makeAngleMeasure(mq1, mqv, mq2, id, true);
+            el = makeAngleMeasure(mq1, mqv, mq2, id, s.dir, true);
           } else {
             throw new Error('第 ' + (i + 1) + ' 步：measure 的 kind 只能是 length 或 angle');
           }

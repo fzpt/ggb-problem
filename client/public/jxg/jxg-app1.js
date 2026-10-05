@@ -584,7 +584,12 @@ function measureCarrierValue(o) {
     if (o._measure.kind === 'angle') {
       var t = o._measure.pts;
       var p1 = board.objects[t[0]], v = board.objects[t[1]], p2 = board.objects[t[2]];
-      return (p1 && v && p2) ? angleDeg3(p1, v, p2) : NaN;
+      if (!(p1 && v && p2)) return NaN;
+      var d = angleDeg3(p1, v, p2);   // p1→p2 逆时针 0～360
+      var dir = o._measure.dir || 'minor';
+      if (dir === 'cw') return (360 - d) % 360;
+      if (dir === 'minor') return Math.min(d, 360 - d);
+      return d;
     }
     return measureLenOf(board.objects[o._measure.of]);
   } catch (e) { return NaN; }
@@ -677,11 +682,19 @@ function makeLengthMeasure(target, name, skipTrack) {
   if (!skipTrack) trackId(el.id);
   return el;
 }
-/* 创建角度度量（载体为 angle 元素：弧线 + 名称=数值° 标签） */
-function makeAngleMeasure(p1, v, p2, name, skipTrack) {
-  var el = board.create('angle', [p1, v, p2], { name: name, radius: 1 });
+/* 创建角度度量（载体为 angle 元素：弧线 + 名称=数值° 标签）。
+ * dir：'minor'（≤180，缺省）|'ccw'（p1→p2 逆时针 0～360）|'cw'（p1→p2 顺时针 0～360）。
+ * 弧线可视化：minor 用 JSXGraph selection:minor；cw 把元素点对换成 [p2,v,p1]，
+ * 其逆时针弧正好覆盖 p1→p2 的顺时针一侧；数值统一由 measureCarrierValue 按 dir 计算 */
+function makeAngleMeasure(p1, v, p2, name, dir, skipTrack) {
+  dir = (dir === 'ccw' || dir === 'cw') ? dir : 'minor';
+  var attrs = { name: name, radius: 1 };
+  var parents = [p1, v, p2];
+  if (dir === 'minor') attrs.selection = 'minor';
+  else if (dir === 'cw') parents = [p2, v, p1];
+  var el = board.create('angle', parents, attrs);
   el._defKind = 'measure';
-  el._measure = { kind: 'angle', pts: [p1.id, v.id, p2.id] };
+  el._measure = { kind: 'angle', pts: [p1.id, v.id, p2.id], dir: dir };
   el._depIds = [p1.id, v.id, p2.id];
   try {
     el.label.setText(function () {
@@ -1851,7 +1864,7 @@ var HINTS = {
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
   polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
   mlen:    '当前工具：长度度量 — 点击一条线段、圆、圆弧或多边形，生成长度变量（L1、L2…，可在表达式文本中引用）。',
-  mang:    '当前工具：角度度量 — 依次点击三个点（第 2 点为角顶点，可复用已有点/交点），生成角度变量（a1、a2…，单位度，逆时针 0～360）。',
+  mang:    '当前工具：角度度量 — 依次点击三个点（第 2 点为角顶点，可复用已有点/交点），生成角度变量（a1、a2…，单位度）；方向（≤180/逆时针/顺时针）在工具栏右侧选择。',
   mtext:   '当前工具：表达式文本 — 在工具栏右侧输入表达式（如 2*L1+a1/2），再点击空白处放置；表达式随度量/图形变化实时更新。',
   adrive:  '当前工具：从动角 — 倍数 k 在工具栏右侧输入；依次点击：基准角三点（第 2 点为顶点）→ 目标顶点 → 目标角一条边上的点，生成从动点 D：∠边点·顶点·D = k × 基准角（单向从动）。'
 };
@@ -2277,7 +2290,8 @@ function describeObj(o) {
   if (o._measure) {
     return o._measure.kind === 'length'
       ? '长度 ' + name + ' = ' + ppNum(measureLenOf(board.objects[o._measure.of]))
-      : '角度 ' + name + ' = ' + ppNum(measureCarrierValue(o)) + '°';
+      : '角度 ' + name + (o._measure.dir === 'ccw' ? '（逆时针）' : o._measure.dir === 'cw' ? '（顺时针）' : '') +
+        ' = ' + ppNum(measureCarrierValue(o)) + '°';
   }
   if (o._isExprText) {
     var tv = NaN;
