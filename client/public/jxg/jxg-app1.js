@@ -603,7 +603,123 @@ function collectMeasureVars() {
   }
   return vars;
 }
-/* 表达式文本求值：数字、度量变量名、+ - * / 括号（不支持函数）。未知度量抛错。 */
+/* 按名称找对象（点在前后端都按名称引用；名称全局唯一） */
+function findObjByName(nm) {
+  for (var i = 0; i < createdIds.length; i++) {
+    var o = board.objects[createdIds[i]];
+    if (o && o.name === nm) return o;
+  }
+  return null;
+}
+/* 表达式文本函数表（与 lib/jxg-steps.js 的 TEXT_FUNCS 白名单保持一致；函数名大小写不敏感）。
+ * 值类型：{k:'n',v} 数字 | {k:'p',el} 画板点元素 | {k:'xy',x,y} 坐标对 | {k:'o',el} 其他图形对象。
+ * 三角函数为度数制（与角度度量/旋转工具一致） */
+var MSRTEXT_FUNCS = {
+  x: function (a) { var q = ptXY(a); return num(q[0]); },
+  y: function (a) { var q = ptXY(a); return num(q[1]); },
+  distance: function (a, b) { var q1 = ptXY(a), q2 = ptXY(b); return num(Math.hypot(q2[0] - q1[0], q2[1] - q1[1])); },
+  midpoint: function (a, b) {
+    var q1 = ptXY(a), q2 = ptXY(b);
+    return { k: 'xy', x: (q1[0] + q2[0]) / 2, y: (q1[1] + q2[1]) / 2 };
+  },
+  center: function (o) {
+    var el = objEl(o, 'Center');
+    var c = (el.elType === 'circle' || el.elType === 'circumcircle' || el.elType === 'arc' ||
+             el.elType === 'ellipse' || el.elType === 'hyperbola') ? el.center : null;
+    if (!c) throw new Error('Center 只支持圆/圆弧/椭圆/双曲线');
+    return { k: 'p', el: c };
+  },
+  point: function (o, t) {
+    var el = objEl(o, 'Point'), tv = numV(t);
+    if (el.elType === 'segment') {
+      var pr = el.parents || [], a1 = board.objects[pr[0]], b1 = board.objects[pr[1]];
+      if (!a1 || !b1) throw new Error('Point 的线段无效');
+      return { k: 'xy', x: a1.X() + tv * (b1.X() - a1.X()), y: a1.Y() + tv * (b1.Y() - a1.Y()) };
+    }
+    if (el.elType === 'line') {
+      var p1 = el.point1, p2 = el.point2;
+      if (!p1 || !p2) throw new Error('Point 的直线无效');
+      return { k: 'xy', x: p1.X() + tv * (p2.X() - p1.X()), y: p1.Y() + tv * (p2.Y() - p1.Y()) };
+    }
+    if (el.elType === 'circle' || el.elType === 'circumcircle' || el.elType === 'arc') {
+      var r = radiusOf(el);
+      if (!isFinite(r)) throw new Error('Point 的圆/圆弧无效');
+      var rad = tv * Math.PI / 180, cen = el.center;
+      if (el.elType === 'arc' && el.radiuspoint) {
+        var base = Math.atan2(el.radiuspoint.Y() - cen.Y(), el.radiuspoint.X() - cen.X());
+        rad = base + tv * Math.PI / 180;
+      }
+      return { k: 'xy', x: cen.X() + r * Math.cos(rad), y: cen.Y() + r * Math.sin(rad) };
+    }
+    throw new Error('Point 只支持线段/直线/圆/圆弧');
+  },
+  length: function (o) { var v = measureLenOf(objEl(o, 'Length')); return num(v); },
+  area: function (o) {
+    var el = objEl(o, 'Area');
+    if (el.elType === 'circle' || el.elType === 'circumcircle') {
+      var r = radiusOf(el);
+      return num(isFinite(r) ? Math.PI * r * r : NaN);
+    }
+    if (el.elType === 'polygon') {
+      var vs = el.vertices || [], sum = 0;
+      for (var j = 0; j < vs.length; j++) {
+        var p = vs[j], q = vs[(j + 1) % vs.length];
+        if (!p || !q) return num(NaN);
+        sum += p.X() * q.Y() - q.X() * p.Y();
+      }
+      return num(Math.abs(sum) / 2);
+    }
+    throw new Error('Area 只支持多边形/圆');
+  },
+  radius: function (o) { return num(radiusOf(objEl(o, 'Radius'))); },
+  slope: function (o) {
+    var el = objEl(o, 'Slope');
+    if (el.elType === 'line' && el.stdform) {
+      var sf = el.stdform;
+      if (Math.abs(sf[2]) < 1e-12) throw new Error('竖直直线无斜率');
+      return num(-sf[1] / sf[2]);
+    }
+    if (el.elType === 'segment') {
+      var pr2 = el.parents || [], a2 = board.objects[pr2[0]], b2 = board.objects[pr2[1]];
+      if (!a2 || !b2 || Math.abs(b2.X() - a2.X()) < 1e-12) throw new Error('竖直线段无斜率');
+      return num((b2.Y() - a2.Y()) / (b2.X() - a2.X()));
+    }
+    throw new Error('Slope 只支持直线/线段');
+  },
+  abs: function (a) { return num(Math.abs(numV(a))); },
+  sqrt: function (a) { return num(Math.sqrt(numV(a))); },
+  floor: function (a) { return num(Math.floor(numV(a))); },
+  ceil: function (a) { return num(Math.ceil(numV(a))); },
+  round: function (a) { return num(Math.round(numV(a))); },
+  max: function () { return num(Math.max.apply(null, argsNum(arguments))); },
+  min: function () { return num(Math.min.apply(null, argsNum(arguments))); },
+  mod: function (a, b) { return num(numV(a) % numV(b)); },
+  sin: function (a) { return num(Math.sin(numV(a) * Math.PI / 180)); },
+  cos: function (a) { return num(Math.cos(numV(a) * Math.PI / 180)); },
+  tan: function (a) { return num(Math.tan(numV(a) * Math.PI / 180)); },
+  asin: function (a) { return num(Math.asin(numV(a)) * 180 / Math.PI); },
+  acos: function (a) { return num(Math.acos(numV(a)) * 180 / Math.PI); },
+  atan: function (a) { return num(Math.atan(numV(a)) * 180 / Math.PI); }
+};
+function num(v) { return { k: 'n', v: v }; }
+function numV(a) { if (a.k !== 'n') throw new Error('该处必须是数字'); return a.v; }
+function ptXY(a) {
+  if (a.k === 'p') return [a.el.X(), a.el.Y()];
+  if (a.k === 'xy') return [a.x, a.y];
+  throw new Error('该处必须是点');
+}
+function objEl(a, fn) {
+  if (a.k === 'o') return a.el;
+  if (a.k === 'p') return a.el;
+  throw new Error(fn + ' 的参数必须是图形对象');
+}
+function argsNum(args) {
+  var out = [];
+  for (var j = 0; j < args.length; j++) out.push(numV(args[j]));
+  return out;
+}
+/* 表达式文本求值：数字、度量变量、点/对象函数、+ - * / 括号。
+ * 裸标识符：度量变量→数，点→点值，其他对象→对象值；整体结果必须是数。 */
 function evalMsrExpr(src, vars) {
   vars = vars || collectMeasureVars();
   var s = String(src), i = 0;
@@ -612,8 +728,8 @@ function evalMsrExpr(src, vars) {
     var v = parseMul();
     for (;;) {
       skip();
-      if (s[i] === '+') { i++; v = v + parseMul(); }
-      else if (s[i] === '-') { i++; v = v - parseMul(); }
+      if (s[i] === '+') { i++; v = num(numV(v) + numV(parseMul())); }
+      else if (s[i] === '-') { i++; v = num(numV(v) - numV(parseMul())); }
       else return v;
     }
   }
@@ -621,14 +737,14 @@ function evalMsrExpr(src, vars) {
     var v = parseFactor();
     for (;;) {
       skip();
-      if (s[i] === '*') { i++; v = v * parseFactor(); }
-      else if (s[i] === '/') { i++; v = v / parseFactor(); }
+      if (s[i] === '*') { i++; v = num(numV(v) * numV(parseFactor())); }
+      else if (s[i] === '/') { i++; v = num(numV(v) / numV(parseFactor())); }
       else return v;
     }
   }
   function parseFactor() {
     skip();
-    if (s[i] === '-') { i++; return -parseFactor(); }
+    if (s[i] === '-') { i++; return num(-numV(parseFactor())); }
     if (s[i] === '(') {
       i++; var v = parseAdd();
       skip();
@@ -636,19 +752,43 @@ function evalMsrExpr(src, vars) {
       i++; return v;
     }
     var m = s.slice(i).match(/^\d*\.?\d+(?:[eE][+-]?\d+)?/);
-    if (m) { i += m[0].length; return parseFloat(m[0]); }
+    if (m) { i += m[0].length; return num(parseFloat(m[0])); }
     m = s.slice(i).match(/^[A-Za-z_][A-Za-z0-9_]*/);
     if (m) {
       i += m[0].length;
-      if (!(m[0] in vars) || !isFinite(vars[m[0]])) throw new Error('未知度量 "' + m[0] + '"');
-      return vars[m[0]];
+      var nm = m[0];
+      skip();
+      /* 函数调用 */
+      if (s[i] === '(') {
+        i++; var args = [];
+        skip();
+        if (s[i] !== ')') {
+          args.push(parseAdd());
+          skip();
+          while (s[i] === ',') { i++; args.push(parseAdd()); skip(); }
+        }
+        if (s[i] !== ')') throw new Error('缺少右括号');
+        i++;
+        var fn = MSRTEXT_FUNCS[nm.toLowerCase()];
+        if (!fn) throw new Error('不支持的函数 "' + nm + '"');
+        return fn.apply(null, args);
+      }
+      /* 裸标识符：度量变量 → 数；点 → 点值；其他对象 → 对象值 */
+      if (nm in vars && isFinite(vars[nm])) return num(vars[nm]);
+      var ob = findObjByName(nm);
+      if (ob) {
+        if (ob.elementClass === JXG.OBJECT_CLASS_POINT) return { k: 'p', el: ob };
+        return { k: 'o', el: ob };
+      }
+      throw new Error('未知度量、点或对象 "' + nm + '"');
     }
     throw new Error('无法解析的表达式');
   }
   var r = parseAdd();
   skip();
   if (i < s.length) throw new Error('表达式末尾有多余内容');
-  return r;
+  if (r.k !== 'n') throw new Error('表达式结果必须是一个数');
+  return r.v;
 }
 /* 表达式文本的画板内容函数：画板每次更新重算（度量/图形变化时自动跟新） */
 function makeMsrTextContent(el) {
@@ -667,6 +807,7 @@ function rescanTextDeps(el) {
       for (var i = 0; i < createdIds.length; i++) {
         var c = board.objects[createdIds[i]];
         if (c && c._measure && c.name === m && deps.indexOf(c.id) < 0) deps.push(c.id);
+        else if (c && !c._measure && c.name === m && deps.indexOf(c.id) < 0) deps.push(c.id);
       }
       return m;
     });
