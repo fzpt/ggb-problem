@@ -446,6 +446,9 @@
             </button>
           </div>
         </div>
+        <button class="tool" data-mode="vector" title="向量：依次点击起点和终点（可复用已有点/交点），生成带箭头的向量；可用于点定义 P = A + k×v 与 Length(v) 表达式" aria-label="向量">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5.5" y1="18.5" x2="15.6" y2="8.4"/><path d="M15.6 8.4l-4.7.3M15.6 8.4l-.3 4.7"/><circle cx="5.5" cy="18.5" r="2.5" fill="currentColor" stroke="none"/><circle cx="15.6" cy="8.4" r="2" fill="currentColor" stroke="none"/></svg>
+        </button>
         <button class="tool" data-mode="polygon" title="多边形：逐个点击顶点，点起点或双击结束" aria-label="多边形">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3L20.5 9.5L16.5 19.5L5.5 18L4 7.5Z"/><circle cx="13" cy="3" r="1.7" fill="currentColor" stroke="none"/><circle cx="20.5" cy="9.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="16.5" cy="19.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="5.5" cy="18" r="1.7" fill="currentColor" stroke="none"/><circle cx="4" cy="7.5" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
@@ -644,7 +647,8 @@
         支持的类型：<code>point</code>（coords）、<code>segment</code> / <code>line</code>（p1,p2）、
         <code>circle</code>（center+radius 或 center+through）、<code>polygon</code>（points 数组）、
         <code>midpoint</code>（p1,p2）、<code>perpendicular</code>（line,point，注册垂足）、
-        <code>intersection</code>（e1,e2,index）。点/线/圆的引用可用 <code>id</code> 字符串或 <code>[x,y]</code> 坐标。
+        <code>intersection</code>（e1,e2,index）、<code>vector</code>（p1,p2，带箭头向量）、
+        <code>vunit</code>（of，单位向量）、<code>vpoint</code>（of+by×k，向量平移点）。点/线/圆的引用可用 <code>id</code> 字符串或 <code>[x,y]</code> 坐标。
         完整说明见 README.md。</p>
       </details>
     </div>

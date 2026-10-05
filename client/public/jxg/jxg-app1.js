@@ -552,6 +552,11 @@ function angleDeg3(p1, v, p2) {
 function measureLenOf(t) {
   if (!t) return NaN;
   try {
+    if (t.elType === 'arrow') {
+      var apr = t.parents || [];
+      var ap1 = board.objects[apr[0]], ap2 = board.objects[apr[1]];
+      return (ap1 && ap2) ? Math.hypot(ap2.X() - ap1.X(), ap2.Y() - ap1.Y()) : NaN;
+    }
     if (t.elType === 'segment') {
       var pr = t.parents || [];
       var a = board.objects[pr[0]], b = board.objects[pr[1]];
@@ -904,6 +909,9 @@ function stepToFormulaText(s) {
     case 'rotate': return id + ' = 旋转(' + s.of + ', 中心' + s.center + ', ' + ppNum(s.angle) + '°)';
     case 'dilate': return id + ' = 位似(' + s.of + ', 中心' + s.center + ', 比' + ppNum(s.ratio) + ')';
     case 'exprpoint': return id + ' = (' + s.x + ', ' + s.y + ')';
+    case 'vector': return id + ' = Vector(' + s.p1 + ', ' + s.p2 + ')';
+    case 'vunit': return id + ' = UnitVector(' + s.of + ')';
+    case 'vpoint': return id + ' = ' + s.of + ' + ' + ppNum(s.k) + '×' + s.by;
     case 'intersection':
       if (s.side)
         return id + ' = 交点(' + s.e1 + ', ' + s.e2 + ')〔' + s.side.point + ' 在 ' + s.side.line +
@@ -1054,7 +1062,48 @@ function parsePointDefText(text, cur) {
     if (!b || b.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[2] + ' 不是点');
     return { type: 'midpoint', p1: m[1], p2: m[2] };
   }
+  /* A + v / A + k*v：点沿向量平移（v 为 vector/vunit 向量对象，k 可为数表达式） */
+  m = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\+\s*([\s\S]+)$/);
+  if (m) {
+    var basePt = findObjByName(m[1]);
+    if (!basePt || basePt.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[1] + ' 不是点');
+    var rhs = m[2].trim(), kTxt = '1', vecName = '';
+    var star = rhs.lastIndexOf('*');
+    if (star >= 0) { kTxt = rhs.slice(0, star).trim(); vecName = rhs.slice(star + 1).trim(); }
+    else vecName = rhs;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(vecName)) throw new Error('向量名 "' + vecName + '" 无效（先定义向量，再写 A + k×向量）');
+    var vecObj = findObjByName(vecName);
+    if (!vecObj || vecObj.elType !== 'arrow') throw new Error(vecName + ' 不是向量（用向量工具创建，或给向量定义 Vector(A,B)）');
+    var kv = Number(kTxt);
+    if (!isFinite(kv)) {
+      try { kv = evalMsrExpr(kTxt); } catch (e) { throw new Error('倍数无效：' + e.message); }
+    }
+    if (!isFinite(kv)) throw new Error('倍数必须是数字或数表达式');
+    return { type: 'vpoint', of: m[1], by: vecName, k: kv };
+  }
   throw new Error('无法识别的定义形式');
+}
+/* 向量定义重定义（属性面板"定义"行）：Vector(A, B) / UnitVector(向量/线段/直线) */
+function parseVectorDefText(text) {
+  var t = String(text).trim();
+  var meq = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]*)$/);
+  if (meq) t = meq[2].trim();
+  var m = t.match(/^Vector\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$/i);
+  if (m) {
+    var a = findObjByName(m[1]), b = findObjByName(m[2]);
+    if (!a || a.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[1] + ' 不是点');
+    if (!b || b.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[2] + ' 不是点');
+    return { type: 'vector', p1: m[1], p2: m[2] };
+  }
+  m = t.match(/^UnitVector\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$/i);
+  if (m) {
+    var o = findObjByName(m[1]);
+    if (!o) throw new Error('对象 ' + m[1] + ' 不存在');
+    if (o.elType !== 'arrow' && o.elType !== 'segment' && o.elType !== 'line')
+      throw new Error(m[1] + ' 不是向量/线段/直线');
+    return { type: 'vunit', of: m[1] };
+  }
+  throw new Error('无法识别的定义形式（向量支持 Vector(A, B) / UnitVector(向量/线段/直线)）');
 }
 /* 属性面板"定义"行回车：重定义当前点（全量重建，保留 id/样式，可撤销） */
 function applyPointRedefine(text) {
@@ -1062,7 +1111,7 @@ function applyPointRedefine(text) {
   if (!o || Array.isArray(o) || !board.objects[o.id]) return;
   var name = o.name;
   var patch;
-  try { patch = parsePointDefText(text, o); }
+  try { patch = (o.elType === 'arrow') ? parseVectorDefText(text) : parsePointDefText(text, o); }
   catch (e) { setStatus('定义无效：' + e.message, false); return; }
   /* 表达式点禁止引用自身（坐标函数会自递归） */
   if (patch.type === 'exprpoint') {
@@ -1199,11 +1248,11 @@ function renderPropPanel() {
   var ftxt = '';
   try { ftxt = stepToFormulaText(objectToStepRaw(o)); } catch (e) {}
   if (!multi && ftxt) {
-    if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
-      /* 点：定义可编辑（重定义），回车应用 */
+    if (o.elementClass === JXG.OBJECT_CLASS_POINT || o.elType === 'arrow') {
+      /* 点/向量：定义可编辑（重定义），回车应用 */
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
            '<span class="ctl"><input type="text" id="ppDefIn" value="' + escAttr(ftxt) + '" ' +
-           'title="回车重定义：(x, y) 自由点 / (表达式, 表达式) 表达式点 / Point(对象[, 比例]) 约束点 / Point(多边形.边N[, 比例]) / Midpoint(A, B)" ' +
+           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
            'style="width:168px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;text-align:right;"></span></div>';
     } else {
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
@@ -2201,6 +2250,7 @@ var HINTS = {
   marquee: '当前工具：框选 — 按住左键拖拽拉出虚线框，只有完全被框住的图形才会被选中（只框住一部分不算）；Shift/Ctrl+框选可追加到已有选择；按在已选中的对象上可直接整体移动。',
   point:   '当前工具：点 — 点击空白处新建点；点击已有点附近自动复用；点击两线交叉处自动生成联动交点；点击线/圆/圆弧上自动生成落在上面的约束点。',
   segment: '当前工具：线段 — 依次点击两个位置；点击已有点附近自动复用，点击两线交叉处自动生成联动交点。',
+  vector:  '当前工具：向量 — 依次点击起点和终点（可复用已有点/交点），生成带箭头的向量；向量可用于点定义（属性面板写 P = A + k×v）与 Length(v) 表达式。',
   line:    '当前工具：直线 — 依次点击两个位置；点击已有点附近自动复用，点击两线交叉处自动生成联动交点。',
   ray:     '当前工具：射线 — 先点击起点、再点击方向点；点击已有点附近自动复用。',
   circle:  '当前工具：圆 — 先点圆心、再点圆上一点；点击已有点附近自动复用，点击两线交叉处自动生成联动交点。',
@@ -2406,7 +2456,7 @@ function isDrivenPoint(o) {
   if (dk === 'parend' && o._free) return false;
   return dk === 'midpoint' || dk === 'footpoint' || dk === 'tricenter' ||
          dk === 'mirrorpt' || dk === 'parend' || dk === 'pfoot' ||
-         dk === 'dilate' || dk === 'rotate' || dk === 'exprpoint' || dk === 'sidepick' ||
+         dk === 'dilate' || dk === 'rotate' || dk === 'exprpoint' || dk === 'sidepick' || dk === 'vpoint' ||
          dk === 'ngonpt' || dk === 'angdrive';
 }
 function applyDrivenGray(o) {

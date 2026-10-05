@@ -265,7 +265,7 @@ function clearUserObjects() {
   Object.keys(board.objects).forEach(function (id) {
     var o = board.objects[id];
     if (o && (o._defKind === 'perpline' || o._defKind === 'arc3center' || o._defKind === 'parhelp' || o._defKind === 'parline' || o._defKind === 'bishelp' || o._defKind === 'sidecand' || o._defKind === 'ngoncenter' ||
-           o._defKind === 'pfoot' || o._defKind === 'psegext')) { try { board.removeObject(o); } catch (e) {} }
+           o._defKind === 'pfoot' || o._defKind === 'psegext' || o._defKind === 'vhelp')) { try { board.removeObject(o); } catch (e) {} }
   });
   createdIds = [];
   /* 批量重建期间（renderSteps 内 suppressHistory=true）跳过，由 renderSteps 统一刷一次，避免列表闪空 */
@@ -437,6 +437,7 @@ function objectToStepRaw(o) {
   if (dk === 'pfoot') return null;       // 垂线段的垂足，随垂线段步骤一起重建
   if (dk === 'psegext') return null;     // 垂线段的越界连接段，随垂线段步骤一起重建
   if (dk === 'sidecand') return null;    // side 约束交点的候选交点，随 sidepick 点一起重建
+  if (dk === 'vhelp') return null;       // 单位向量的隐藏辅助点，随 vunit 步骤一起重建
   if (dk === 'ngonpt') return null;      // 正 N 边形的派生顶点，随 regularpolygon 步骤一起重建
   if (dk === 'ngoncenter') return null;  // 两点模式的隐藏中心点，随 regularpolygon 步骤一起重建
   if (dk === 'glider') {
@@ -477,6 +478,12 @@ function objectToStepRaw(o) {
   if (dk === 'angdrive')
     return { type: 'angdrive', id: nm, vertex: oname(o._adVertex), side: oname(o._adSide),
              k: o._adK, src: o._adSrcName };
+  if (dk === 'vector')
+    return { type: 'vector', id: nm, p1: oname(o.parents[0]), p2: oname(o.parents[1]) };
+  if (dk === 'vunit')
+    return { type: 'vunit', id: nm, of: oname(o._vOf) };
+  if (dk === 'vpoint')
+    return { type: 'vpoint', id: nm, of: oname(o._vOf), by: oname(o._vBy), k: o._vK };
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
     if (o.elType === 'intersection') {
       if (o._polyEdge)
@@ -680,6 +687,13 @@ function describeDefRaw(o) {
   if (o._defKind === 'angdrive')
     return '从动点 ' + nm + '：∠' + oname(o._adSide) + oname(o._adVertex) + nm +
            ' = ' + ppNum(o._adK) + ' × ∠' + (o._adSrcName || '?') + '（单向从动）';
+  if (o._defKind === 'vector')
+    return '向量 ' + nm + '：' + pname(o, 0) + ' → ' + pname(o, 1);
+  if (o._defKind === 'vunit')
+    return '单位向量 ' + nm + '：与 ' + oname(o._vOf) + ' 同向，长度 1';
+  if (o._defKind === 'vpoint')
+    return '向量点 ' + nm + '：' + oname(o._vOf) + ' + ' + ppNum(o._vK) + '×' + oname(o._vBy) +
+           '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
   if (o._defKind === 'mirrorpt') {
     var mo = o._mirrorIds && board.objects[o._mirrorIds[0]];
     var mx = o._mirrorIds && board.objects[o._mirrorIds[1]];
@@ -1756,7 +1770,7 @@ board.on('down', function (e) {
       ? '已在两线交叉处生成联动' + describeObj(r0.point) + '。'
       : (r0.isGlider ? '已生成' + describeObj(r0.point) + '。'   /* describeObj 已含约束位置（含多边形边） */
       : (r0.reused ? '已选中已有' + describeObj(r0.point) + '，没有新建点。' : HINTS.point));
-  } else if (mode === 'segment' || mode === 'line' || mode === 'ray' || mode === 'circle') {
+  } else if (mode === 'segment' || mode === 'line' || mode === 'ray' || mode === 'circle' || mode === 'vector') {
     var r = pickOrCreatePoint(x, y, sx, sy);
     if (r.reused) pendingReused = true;
     if (r.isIntersection) pendingInter = true;
@@ -1769,6 +1783,10 @@ board.on('down', function (e) {
         return;
       }
       if (mode === 'segment')      el = board.create('segment', [a, b], { name: nextId('s') });
+      else if (mode === 'vector') {
+        el = board.create('arrow', [a, b], { name: nextId('v') });
+        el._defKind = 'vector';
+      }
       else if (mode === 'line')    el = board.create('line', [a, b], { name: nextId('l') });
       else if (mode === 'ray') {
         el = board.create('line', [a, b], { name: nextId('r'), straightFirst: false, straightLast: true });
@@ -2317,6 +2335,10 @@ function deleteObjects(rootIds) {
     }
     /* 垂线段被删时，其垂足与越界连接段一并清掉（均未登记在 createdIds 里） */
     if (t && (t._defKind === 'pfoot' || t._defKind === 'psegext') && doomed[t._segId]) {
+      try { board.removeObject(t); } catch (e) {}
+    }
+    /* 单位向量被删时，其隐藏辅助点一并清掉（未登记在 createdIds 里） */
+    if (t && t._defKind === 'vhelp' && doomed[t._vOwner]) {
       try { board.removeObject(t); } catch (e) {}
     }
   });
@@ -2971,6 +2993,73 @@ function createRegularPolygon(opts) {
           });
           el._depIds = _exprRefs;
           el._exprX = s.x; el._exprY = s.y;
+          break;
+        }
+        case 'vector': {
+          if (s.p1 === undefined || s.p2 === undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：vector 需要 p1（起点）, p2（终点）');
+          var vq1 = resolveRef(s.p1, registry, i), vq2 = resolveRef(s.p2, registry, i);
+          el = board.create('arrow', [vq1, vq2], { name: id });
+          el._defKind = 'vector';
+          break;
+        }
+        case 'vunit': {
+          if (s.of === undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：vunit 需要 of（向量/线段/直线 id）');
+          var vus = resolveRef(s.of, registry, i);
+          if (vus.elType !== 'arrow' && vus.elType !== 'segment' && vus.elType !== 'line')
+            throw new Error('第 ' + (i + 1) + ' 步：vunit 的 of 必须是向量/线段/直线');
+          var vup = vus.parents || [];
+          var vua = board.objects[vup[0]], vub = board.objects[vup[1]];
+          if (!vua || !vub)
+            throw new Error('第 ' + (i + 1) + ' 步：vunit 的 of 缺少端点引用');
+          /* 隐藏辅助点：起点锚定在 of 的点1，终点 = 起点 + 单位方向 */
+          var vh1 = board.create('point', [function () { return vua.X(); }, function () { return vua.Y(); }],
+            { visible: false, fixed: true });
+          var vh2 = board.create('point', [
+            function () {
+              var dx = vub.X() - vua.X(), dy = vub.Y() - vua.Y();
+              var L = Math.hypot(dx, dy);
+              return L > 1e-12 ? vua.X() + dx / L : vua.X();
+            },
+            function () {
+              var dx = vub.X() - vua.X(), dy = vub.Y() - vua.Y();
+              var L = Math.hypot(dx, dy);
+              return L > 1e-12 ? vua.Y() + dy / L : vua.Y();
+            }
+          ], { visible: false, fixed: true });
+          vh1._defKind = 'vhelp';
+          vh2._defKind = 'vhelp';
+          el = board.create('arrow', [vh1, vh2], { name: id });
+          vh1._vOwner = el.id; vh2._vOwner = el.id;
+          el._defKind = 'vunit';
+          el._vOf = vus.id;
+          el._vhelpIds = [vh1.id, vh2.id];
+          /* 源对象被删时级联删除（函数引用 ancestors 覆盖不到） */
+          el._depIds = [vus.id];
+          break;
+        }
+        case 'vpoint': {
+          if (s.of === undefined || s.by === undefined || s.k === undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：vpoint 需要 of（起点）, by（向量）, k（倍数）');
+          var vpo = resolveRef(s.of, registry, i);
+          var vpb = resolveRef(s.by, registry, i);
+          if (vpb.elType !== 'arrow')
+            throw new Error('第 ' + (i + 1) + ' 步：vpoint 的 by 必须是向量（vector/vunit）');
+          var vpbp = vpb.parents || [];
+          var vpb1 = board.objects[vpbp[0]], vpb2 = board.objects[vpbp[1]];
+          if (!vpb1 || !vpb2)
+            throw new Error('第 ' + (i + 1) + ' 步：vpoint 的 by 缺少端点引用');
+          var vk = Number(s.k);
+          if (!isFinite(vk)) throw new Error('第 ' + (i + 1) + ' 步：vpoint 的 k 需要数值（倍数）');
+          el = board.create('point', [
+            function () { return vpo.X() + vk * (vpb2.X() - vpb1.X()); },
+            function () { return vpo.Y() + vk * (vpb2.Y() - vpb1.Y()); }
+          ], { name: id, fixed: true });
+          el._defKind = 'vpoint';
+          applyDrivenGray(el);
+          el._depIds = [vpo.id, vpb.id];
+          el._vOf = vpo.id; el._vBy = vpb.id; el._vK = vk;
           break;
         }
         case 'measure': {
