@@ -892,8 +892,8 @@ function stepToFormulaText(s) {
   var id = s.id || '';
   switch (s.type) {
     case 'point':
-      if (s.polygon !== undefined) return id + ' = Point(' + s.polygon + '.边' + (Number(s.edge) + 1) + ')';
-      if (s.on) return id + ' = Point(' + s.on + ')';
+      if (s.polygon !== undefined) return id + ' = Point(' + s.polygon + '.边' + (Number(s.edge) + 1) + (s.pos !== undefined ? ', ' + ppNum(s.pos) : '') + ')';
+      if (s.on) return id + ' = Point(' + s.on + (s.pos !== undefined ? ', ' + ppNum(s.pos) : '') + ')';
       return id + ' = (' + ppNum(s.coords[0]) + ', ' + ppNum(s.coords[1]) + ')';
     case 'midpoint': return id + ' = Midpoint(' + s.p1 + ', ' + s.p2 + ')';
     case 'tricenter':
@@ -971,6 +971,126 @@ function equationTextOf(o) {
   } catch (e) {}
   return '';
 }
+/* ============================================================
+ * 点定义重定义（属性面板"定义"行回车应用）
+ * 支持形式：(x, y) 自由点 / (表达式, 表达式) 表达式点 /
+ *           Point(对象[, 比例]) / Point(多边形.边N[, 比例]) 约束点 / Midpoint(A, B)
+ * 解析为步骤 patch（不含 id/style），由 applyPointRedefine 合并旧步骤保留样式。
+ * ============================================================ */
+function parsePointDefText(text, cur) {
+  var t = String(text).trim();
+  /* 允许带 "名称 = " 前缀（与定义行显示一致） */
+  var meq = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]*)$/);
+  if (meq) t = meq[2].trim();
+  /* (a, b)：按括号深度找顶层逗号，避免误切 Distance(A,B) 这类函数参数 */
+  function splitTopComma(inner) {
+    var depth = 0;
+    for (var i = 0; i < inner.length; i++) {
+      var ch = inner[i];
+      if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+      else if (ch === ',' && depth === 0) return [inner.slice(0, i), inner.slice(i + 1)];
+    }
+    return null;
+  }
+  var m = t.match(/^\(([\s\S]+)\)$/);
+  if (m) {
+    var parts = splitTopComma(m[1]);
+    if (!parts) throw new Error('坐标形式需要 (x, y) 两个表达式');
+    var xs = parts[0].trim(), ys = parts[1].trim();
+    var xn = Number(xs), yn = Number(ys);
+    if (xs !== '' && ys !== '' && isFinite(xn) && isFinite(yn))
+      return { type: 'point', coords: [xn, yn] };
+    /* 非纯数字 → 表达式点；先做一次试算给出明确报错 */
+    try { evalMsrExpr(xs); } catch (e) { throw new Error('x 表达式无效：' + e.message); }
+    try { evalMsrExpr(ys); } catch (e) { throw new Error('y 表达式无效：' + e.message); }
+    return { type: 'exprpoint', x: xs, y: ys };
+  }
+  /* Point(对象[, 比例]) / Point(多边形.边N[, 比例]) */
+  m = t.match(/^Point\(([\s\S]+)\)$/i);
+  if (m) {
+    var args = m[1].split(',');
+    if (args.length > 2) throw new Error('Point 最多 2 个参数');
+    var target = args[0].trim();
+    var pos;
+    if (args.length === 2) {
+      pos = Number(args[1].trim());
+      if (!isFinite(pos)) throw new Error('位置比例必须是数字');
+      pos = Math.max(0, Math.min(1, pos));
+    }
+    var mp = target.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*[.．]\s*边\s*(\d+)$/);
+    if (mp) {
+      var poly = findObjByName(mp[1]);
+      if (!poly || poly.elType !== 'polygon') throw new Error('多边形 ' + mp[1] + ' 不存在');
+      var edge = parseInt(mp[2], 10) - 1;
+      var bd = poly.borders && poly.borders[edge];
+      if (!bd) throw new Error('多边形 ' + mp[1] + ' 没有第 ' + mp[2] + ' 条边');
+      var stP = { type: 'point', polygon: mp[1], edge: edge, coords: [r4v(cur.X()), r4v(cur.Y())] };
+      if (pos !== undefined) stP.pos = pos;
+      return stP;
+    }
+    var ob = findObjByName(target);
+    if (!ob) throw new Error('对象 ' + target + ' 不存在');
+    var okTypes = ['line', 'segment', 'ray', 'circle', 'circumcircle', 'arc', 'ellipse', 'hyperbola', 'parabola'];
+    if (okTypes.indexOf(ob.elType) < 0) throw new Error(target + ' 不是可作约束的曲线对象');
+    var st = { type: 'point', on: target, coords: [r4v(cur.X()), r4v(cur.Y())] };
+    if (pos !== undefined) st.pos = pos;
+    return st;
+  }
+  /* Midpoint(A, B) */
+  m = t.match(/^Midpoint\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$/i);
+  if (m) {
+    var a = findObjByName(m[1]), b = findObjByName(m[2]);
+    if (!a || a.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[1] + ' 不是点');
+    if (!b || b.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[2] + ' 不是点');
+    return { type: 'midpoint', p1: m[1], p2: m[2] };
+  }
+  throw new Error('无法识别的定义形式');
+}
+/* 属性面板"定义"行回车：重定义当前点（全量重建，保留 id/样式，可撤销） */
+function applyPointRedefine(text) {
+  var o = propTarget;
+  if (!o || Array.isArray(o) || !board.objects[o.id]) return;
+  var name = o.name;
+  var patch;
+  try { patch = parsePointDefText(text, o); }
+  catch (e) { setStatus('定义无效：' + e.message, false); return; }
+  /* 表达式点禁止引用自身（坐标函数会自递归） */
+  if (patch.type === 'exprpoint') {
+    var selfRe = new RegExp('\\b' + name + '\\b');
+    if (selfRe.test(patch.x) || selfRe.test(patch.y)) {
+      setStatus('定义无效：表达式不能引用自身 ' + name + '。', false);
+      return;
+    }
+  }
+  var steps = snapshotState().steps;
+  var idx = -1;
+  for (var i = 0; i < steps.length; i++) if (steps[i].id === name) { idx = i; break; }
+  if (idx < 0) { setStatus('未找到 ' + name + ' 的步骤。', false); return; }
+  var old = steps[idx];
+  var ns = { id: name };
+  for (var k in old) if (k === 'style' || k === 'visible') ns[k] = old[k];
+  for (var k2 in patch) ns[k2] = patch[k2];
+  steps[idx] = ns;
+  pushHistory();
+  try {
+    renderSteps(steps);
+  } catch (e) {
+    steps[idx] = old;
+    try { renderSteps(steps); } catch (e2) {}
+    setStatus('重定义失败：' + e.message, false);
+    return;
+  }
+  /* 重建后按名称找回新对象，保持选中与属性面板 */
+  var nb = findObjByName(name);
+  if (nb) {
+    try { selectObject(nb); } catch (e) {}
+    propTarget = nb;
+    renderPropPanel();
+  }
+  setStatus('已重定义 ' + name + '。', true);
+}
+function r4v(v) { return Math.round(v * 10000) / 10000; }
 function renderPropPanel() {
   if (propBoardMode) { renderBoardPropPanel(); return; }
   var foot = document.querySelector('#proppanel .pfoot');
@@ -1070,9 +1190,17 @@ function renderPropPanel() {
   var ftxt = '';
   try { ftxt = stepToFormulaText(objectToStepRaw(o)); } catch (e) {}
   if (!multi && ftxt) {
-    h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
-         '<span class="ctl" id="ppDef" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
-         escHtml(ftxt) + '</span></div>';
+    if (o.elementClass === JXG.OBJECT_CLASS_POINT) {
+      /* 点：定义可编辑（重定义），回车应用 */
+      h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
+           '<span class="ctl"><input type="text" id="ppDefIn" value="' + escAttr(ftxt) + '" ' +
+           'title="回车重定义：(x, y) 自由点 / (表达式, 表达式) 表达式点 / Point(对象[, 比例]) 约束点 / Point(多边形.边N[, 比例]) / Midpoint(A, B)" ' +
+           'style="width:168px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;text-align:right;"></span></div>';
+    } else {
+      h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
+           '<span class="ctl" id="ppDef" style="max-width:160px;word-break:break-all;text-align:right;color:#24292f;">' +
+           escHtml(ftxt) + '</span></div>';
+    }
   }
   /* 方程（直线/圆） */
   var eqt = equationTextOf(o);
@@ -1099,6 +1227,26 @@ function renderPropPanel() {
          '<input type="text" id="ppExpr" value="' + escAttr(o._exprText) + '" ' +
          'style="width:150px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
          '</span></div>';
+  }
+  /* 边上约束点：位置（比例 0~1 或距首端点距离）—— 仅当滑动对象为线段 */
+  if (!multi && o._defKind === 'glider') {
+    var slideEl = null;
+    try { slideEl = board.objects[o._onId]; } catch (e) {}
+    if (slideEl && slideEl.elType === 'segment') {
+      var posMode = o._posMode || 'ratio';
+      var L0 = measureLenOf(slideEl);
+      var posVal = posMode === 'ratio' ? ppNum(o.position)
+                                       : (isFinite(L0) ? ppNum(o.position * L0) : '');
+      h += '<div class="prow"><span>位置</span><span class="ctl">' +
+           '<select id="ppPosMode" style="font-size:12px;">' +
+           '<option value="ratio"' + (posMode === 'ratio' ? ' selected' : '') + '>比例</option>' +
+           '<option value="dist"' + (posMode === 'dist' ? ' selected' : '') + '>距起点</option>' +
+           '</select>' +
+           '<input type="text" id="ppPos" value="' + escAttr(posVal) + '" ' +
+           'title="比例 0~1（0=首端点，1=尾端点）或距首端点距离，回车应用" ' +
+           'style="width:80px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;">' +
+           '</span></div>';
+    }
   }
   /* 共同样式属性：颜色所有对象都有；线型/线宽仅全部为非点对象时显示；
    * 填充仅全部为封闭图形时显示；值不一致的项标注“多值”，用户改动后统一应用到全部对象 */
@@ -1236,6 +1384,52 @@ function renderPropPanel() {
     });
     ppExpr.addEventListener('click', function (ev) { ev.stopPropagation(); });
   }
+  /* 点定义重定义：回车解析并重建该点的构造步骤 */
+  var ppDefIn = document.getElementById('ppDefIn');
+  if (ppDefIn) {
+    ppDefIn.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      if (ev.key !== 'Enter') return;
+      applyPointRedefine(ppDefIn.value);
+    });
+    ppDefIn.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  }
+  /* 边上约束点位置：回车应用（比例 → 0~1；距起点 → 按当前长度换算成比例存储） */
+  var ppPosMode = document.getElementById('ppPosMode');
+  if (ppPosMode) ppPosMode.addEventListener('change', function () {
+    if (propTarget && !Array.isArray(propTarget)) propTarget._posMode = this.value;
+    renderPropPanel();
+  });
+  var ppPos = document.getElementById('ppPos');
+  if (ppPos) {
+    ppPos.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      if (ev.key !== 'Enter') return;
+      var o = propTarget;
+      if (!o || Array.isArray(o) || !board.objects[o.id]) return;
+      var slideEl = board.objects[o._onId];
+      if (!slideEl || slideEl.elType !== 'segment') return;
+      var v = parseFloat(ppPos.value);
+      if (!isFinite(v)) { setStatus('位置需要输入数字。', false); return; }
+      var t, L;
+      if ((o._posMode || 'ratio') === 'ratio') {
+        if (v < 0 || v > 1) { setStatus('比例需要在 0~1 之间。', false); return; }
+        t = v;
+      } else {
+        L = measureLenOf(slideEl);
+        if (!isFinite(L) || L <= 0) { setStatus('无法计算线段长度。', false); return; }
+        if (v < 0 || v > L) { setStatus('距离需要在 0~' + ppNum(L) + ' 之间。', false); return; }
+        t = v / L;
+      }
+      pushHistory();
+      o.position = Math.max(0, Math.min(1, t));
+      o.needsUpdateFromParent = true;   // 强制从 position 重算坐标（否则可能被 updateGlider 从旧坐标覆盖）
+      try { board.update(); } catch (e) {}
+      renderPropPanel();
+      setStatus('已设置 ' + o.name + ' 在线段上的位置。', true);
+    });
+    ppPos.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  }
 }
 document.getElementById('ppClose').addEventListener('click', closePropPanel);
 /* 面板打开期间：画板更新后 300ms 节流刷新 定义/方程 数值（名称输入中不刷新） */
@@ -1260,6 +1454,13 @@ function refreshPropDynamic() {
     try { ftxt = stepToFormulaText(objectToStepRaw(propTarget)); } catch (e) {}
     d.textContent = ftxt;
   }
+  /* 点的可编辑定义行：未输入时跟随画板刷新 */
+  var din = document.getElementById('ppDefIn');
+  if (din && document.activeElement !== din && board.objects[propTarget.id]) {
+    var ftxt2 = '';
+    try { ftxt2 = stepToFormulaText(objectToStepRaw(propTarget)); } catch (e) {}
+    if (ftxt2) din.value = ftxt2;
+  }
   var q = document.getElementById('ppEq');
   if (q) q.textContent = equationTextOf(propTarget);
   /* 度量/表达式文本的"值"行随画板更新刷新 */
@@ -1272,6 +1473,19 @@ function refreshPropDynamic() {
     mv.textContent = (propTarget._measure && propTarget._measure.kind === 'angle')
       ? (isFinite(vv) ? ppNum(vv) + '°' : '?')
       : (isFinite(vv) ? ppNum(vv) : '?');
+  }
+  /* 边上约束点的"位置"输入随画板更新刷新（输入框聚焦时不打扰） */
+  var pp = document.getElementById('ppPos');
+  if (pp && document.activeElement !== pp && propTarget && !Array.isArray(propTarget) &&
+      propTarget._defKind === 'glider' && board.objects[propTarget._onId]) {
+    var sl = board.objects[propTarget._onId];
+    if (sl.elType === 'segment') {
+      if ((propTarget._posMode || 'ratio') === 'ratio') pp.value = ppNum(propTarget.position);
+      else {
+        var LL = measureLenOf(sl);
+        pp.value = isFinite(LL) ? ppNum(propTarget.position * LL) : '';
+      }
+    }
   }
 }
 board.on('update', function () {

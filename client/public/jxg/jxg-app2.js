@@ -441,10 +441,17 @@ function objectToStepRaw(o) {
   if (dk === 'ngoncenter') return null;  // 两点模式的隐藏中心点，随 regularpolygon 步骤一起重建
   if (dk === 'glider') {
     /* 多边形边上的约束点：边无独立名称，用 polygon+edge 定位（与 intersection 一致） */
-    if (o._polyEdge)
-      return { type: 'point', id: nm, polygon: oname(o._polyEdge.polyId),
-               edge: o._polyEdge.edgeIdx, coords: [r4(o.X()), r4(o.Y())] };
-    return { type: 'point', id: nm, on: oname(o._onId), coords: [r4(o.X()), r4(o.Y())] };
+    if (o._polyEdge) {
+      var gp2 = { type: 'point', id: nm, polygon: oname(o._polyEdge.polyId),
+                  edge: o._polyEdge.edgeIdx, coords: [r4(o.X()), r4(o.Y())] };
+      var gb2 = board.objects[o._onId];
+      if (gb2 && gb2.elType === 'segment') gp2.pos = r4(o.position);
+      return gp2;
+    }
+    var gp1 = { type: 'point', id: nm, on: oname(o._onId), coords: [r4(o.X()), r4(o.Y())] };
+    if (board.objects[o._onId] && board.objects[o._onId].elType === 'segment')
+      gp1.pos = r4(o.position);
+    return gp1;
   }
     if (dk === 'mirrorpt')
       return { type: 'mirrorpt', id: nm, of: oname(o._mirrorIds[0]), axis: oname(o._mirrorIds[1]), t: o._mtype };
@@ -2571,6 +2578,10 @@ function createRegularPolygon(opts) {
           el._polyEdge = { polyId: gpoly.id, edgeIdx: s.edge };
           gbd._polyBorderOf = { polyId: gpoly.id, edgeIdx: s.edge };
           applyGliderColor(el);
+          if (Number.isFinite(s.pos)) {
+            el.position = Math.max(0, Math.min(1, s.pos));
+            el.needsUpdateFromParent = true;
+          }
           break;
         }
         if (s.on !== undefined) {
@@ -2580,6 +2591,10 @@ function createRegularPolygon(opts) {
           el._defKind = 'glider';
           el._onId = cv.id;
           applyGliderColor(el);
+          if (Number.isFinite(s.pos)) {
+            el.position = Math.max(0, Math.min(1, s.pos));
+            el.needsUpdateFromParent = true;
+          }
         } else {
           el = board.create('point', s.coords, { name: id });
         }
@@ -2942,7 +2957,9 @@ function createRegularPolygon(opts) {
         case 'exprpoint': {
           if (typeof s.x !== 'string' || typeof s.y !== 'string')
             throw new Error('第 ' + (i + 1) + ' 步：exprpoint 需要 x, y 表达式字符串');
-          var exFn = compileExprFn(s.x, registry, i), eyFn = compileExprFn(s.y, registry, i);
+          /* 完整数表达式（与表达式文本同一套函数表/度量变量），每次更新动态求值 */
+          var exFn = function () { try { return evalMsrExpr(s.x); } catch (e) { return NaN; } };
+          var eyFn = function () { try { return evalMsrExpr(s.y); } catch (e) { return NaN; } };
           el = board.create('point', [exFn, eyFn], { name: id, fixed: true });
           el._defKind = 'exprpoint';
           applyDrivenGray(el);
