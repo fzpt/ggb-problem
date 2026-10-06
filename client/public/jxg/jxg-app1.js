@@ -1063,6 +1063,13 @@ function parsePointDefText(text, cur) {
     if (!b || b.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[2] + ' 不是点');
     return { type: 'midpoint', p1: m[1], p2: m[2] };
   }
+  /* B（单个点名字）：跟随该点的从动点（对齐 GeoGebra 的 B = A） */
+  m = t.match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (m) {
+    var ali = findObjByName(m[1]);
+    if (!ali || ali.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[1] + ' 不是点');
+    return { type: 'exprpoint', x: 'x(' + m[1] + ')', y: 'y(' + m[1] + ')' };
+  }
   /* A + v / A + k*v：点沿向量平移（v 为 vector/vunit 向量对象，k 可为数表达式） */
   m = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\+\s*([\s\S]+)$/);
   if (m) {
@@ -1254,7 +1261,7 @@ function renderPropPanel() {
       /* 点/向量：定义可编辑（重定义），回车应用 */
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
            '<span class="ctl"><input type="text" id="ppDefIn" value="' + escAttr(ftxt) + '" ' +
-           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
+           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量 / B（跟随点B）；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
            'style="width:168px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;text-align:right;"></span></div>';
     } else {
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
