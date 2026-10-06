@@ -1741,8 +1741,19 @@ board.on('down', function (e) {
       return;
     }
     var kEl = document.getElementById('adriveK');
-    var ak = kEl ? Number(kEl.value) : 1;
-    if (!isFinite(ak)) ak = 1;
+    /* 纯数字直接用，否则按数表达式求值（度量变量 + Distance/Length 等函数） */
+    var ak = 1;
+    if (kEl && String(kEl.value).trim() !== '') {
+      var kRaw = String(kEl.value).trim();
+      try {
+        ak = /^\d*\.?\d+$/.test(kRaw) ? parseFloat(kRaw) : evalMsrExpr(kRaw);
+      } catch (e) {
+        setStatus('倍数无效：' + e.message, false);
+        document.getElementById('hint').textContent = HINTS.adrive;
+        return;
+      }
+      if (!isFinite(ak)) { setStatus('倍数必须是数字或数表达式。', false); return; }
+    }
     /* 复用同三点的已有角度度量作为基准；没有则顺手新建 */
     var srcCarrier = null;
     for (var ci = 0; ci < createdIds.length; ci++) {

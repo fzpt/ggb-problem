@@ -528,7 +528,7 @@
         <button class="tool" data-mode="rotate" title="旋转：先点旋转中心，输入角度，再多选图形，双击空白处生成旋转图形" aria-label="旋转">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M17.6 2.8v3.6h-3.6"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
-        <span id="rotAngleWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">角度<input id="rotAngle" type="number" value="90" step="5" min="-360" max="360" title="旋转角度（度，逆时针为正）" style="width:54px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
+        <span id="rotAngleWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">角度<input id="rotAngle" type="text" inputmode="decimal" value="90" title="旋转角度（度，逆时针为正）；支持数表达式：度量变量（L1、a1…）与函数（如 Distance(A,B)、Length(seg1) 等），非法时回落 90°" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
         <span class="toolsep"></span>
         <button class="tool" data-mode="ellipse" title="椭圆：依次点击两个焦点，再点击椭圆上一点" aria-label="椭圆">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="5.6"/><circle cx="8.4" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="15.6" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="6.4" r="1.7" fill="currentColor" stroke="none"/></svg>
@@ -557,7 +557,7 @@
         <button class="tool" data-mode="adrive" title="从动角：倍数 k 在工具栏右侧输入；依次点基准角三点（第 2 点为顶点）→ 目标顶点 → 目标边点，生成从动点 D：∠边点·顶点·D = k × 基准角（单向从动）" aria-label="从动角">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18L6 5.5M6 18L18.5 18"/><path d="M6 12.5A6.5 6.5 0 0 1 11.5 6.2"/><path d="M11 3.8l2.4 1.6-2.7 1.3" stroke-width="1.5"/></svg>
         </button>
-        <span id="adriveKWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">倍数 k<input id="adriveK" type="number" value="1" step="0.5" title="从动角倍数 k（可为负，逆时针为正）" style="width:50px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"></span>
+        <span id="adriveKWrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:#57606a;">倍数 k<input id="adriveK" type="text" inputmode="decimal" value="1" title="从动角倍数 k（可为负，逆时针为正）；支持数表达式：度量变量（L1、a1…）与函数（如 a1/2、Distance(A,B) 等）" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"></span>
         <span class="toolsep"></span>
         <button class="tool" data-action="delete" title="删除：先在选择模式下选中对象（可 Shift 多选），再点此按钮删除；也可按 Del 键" aria-label="删除">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>

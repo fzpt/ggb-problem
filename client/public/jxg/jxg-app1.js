@@ -3496,10 +3496,13 @@ function makeMirrorPoint(orig, ax, mtype, name) {
   return el;
 }
 
-/* 旋转工具当前角度（工具栏输入框；非法值回落 90°） */
+/* 旋转工具当前角度（工具栏输入框）：纯数字直接用，否则按数表达式求值
+ *（度量变量 + Distance/Length 等函数）；非法值回落 90° */
 function currentRotAngle() {
   try {
-    var v = parseFloat(document.getElementById('rotAngle').value);
+    var raw = String(document.getElementById('rotAngle').value).trim();
+    if (!raw) return 90;
+    var v = /^\d*\.?\d+$/.test(raw) ? parseFloat(raw) : evalMsrExpr(raw);
     if (isFinite(v)) return v;
   } catch (e) {}
   return 90;
