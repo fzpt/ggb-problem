@@ -1274,6 +1274,14 @@ function applyPointRedefine(text) {
   var ns = { id: name };
   for (var k in old) if (k === 'style' || k === 'visible') ns[k] = old[k];
   for (var k2 in patch) ns[k2] = patch[k2];
+  /* 自由点改成计算/约束定义后，旧自由色不再适用：去掉保留颜色，
+   * 让渲染时的从动灰 / 约束蓝生效（其余样式如字号保留） */
+  var DRIVEN_STEP_TYPES = { exprpoint: 1, midpoint: 1, rotate: 1, dilate: 1, mirrorpt: 1,
+                            vpoint: 1, sidepick: 1, angdrive: 1, footpoint: 1, tricenter: 1, intersection: 1 };
+  if (ns.style && (DRIVEN_STEP_TYPES[patch.type] || patch.type === 'point')) {
+    delete ns.style.c;
+    delete ns.style.fc;
+  }
   /* 表达式点：记录用户在定义行输入的原始文本，属性面板/步骤列表按原文显示 */
   if (patch.type === 'exprpoint') {
     var rawDef = String(text).trim();
