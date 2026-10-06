@@ -458,15 +458,6 @@ board.on('move', function (e) {
     lastListRefresh = now;
     try { refreshObjectList(); } catch (err) {}
   }
-  /* 控件按下后的位移跟踪：超过 6px 视为拖拽，不再触发点击动作 */
-  if (widgetDown && !widgetDown.moved) {
-    try {
-      var cPosW = board.getCoordsTopLeftCorner(e);
-      var absPosW = JXG.getPosition(e);
-      var wx = absPosW[0] - cPosW[0], wy = absPosW[1] - cPosW[1];
-      if (Math.hypot(wx - widgetDown.sx, wy - widgetDown.sy) > 6) widgetDown.moved = true;
-    } catch (eW) {}
-  }
   /* 对称工具框选中：更新矩形 */
   if (symMarquee) {
     var cPosM = board.getCoordsTopLeftCorner(e);
@@ -597,25 +588,6 @@ board.on('up', function () {
   var blankClick = (mode === 'select' && panState && !panState.moved && !blankDownAddKey);
   panState = null;
   rightPan = null;
-  /* 控件点击：按下松手无位移 → 触发复选框/按钮动作（任何工具模式下都生效） */
-  if (widgetDown) {
-    var wEl = widgetDown.el, wMoved = widgetDown.moved;
-    widgetDown = null;
-    if (!wMoved && wEl && board.objects[wEl.id]) {
-      if (wEl._defKind === 'checkbox') fireCheckbox(wEl);
-      else if (wEl._defKind === 'button') fireButton(wEl);
-    }
-  }
-  /* 控件拖拽的撤销支持：真移动了把"按下时"快照入栈（与表达式文本同一套语义） */
-  if (widgetDragPre) {
-    try {
-      var wdp = widgetDragPre.el;
-      if (wdp && board.objects[wdp.id] &&
-          (wdp.X() !== widgetDragPre.x0 || wdp.Y() !== widgetDragPre.y0))
-        pushPreDragHistory(widgetDragPre.pre);
-    } catch (eW) {}
-    widgetDragPre = null;
-  }
   /* JSXGraph 原生悬停高亮（浅蓝）清除：按中非点对象时我们关闭了原生拖拽，
    * mouseup 后它不会被清除，一直盖在选中色上；每次 mouseup 统一清掉。
    * 悬停时的浅蓝由 mouseover 重新给出，不受影响 */
