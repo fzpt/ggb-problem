@@ -3119,6 +3119,12 @@ function createRegularPolygon(opts) {
     /* 单对象样式覆盖 / 轨迹开关 / 主动点周期：随 JSON 恢复 */
     try {
       if (s.style) applyStyle(el, s.style);
+      /* 点的颜色带状态语义（灰=完全从动，蓝=有约束可动）：优先于记录样式，
+       * 兼容旧数据里从动点带着自由橙样式保存的情况 */
+      if (el.elementClass === JXG.OBJECT_CLASS_POINT) {
+        if (isDrivenPoint(el)) applyDrivenGray(el);
+        else if (el._defKind === 'glider') applyGliderColor(el);
+      }
       if (s.trace && el.elementClass === JXG.OBJECT_CLASS_POINT) el._traceOn = true;
       if (s.period !== undefined && el._defKind === 'glider') el._period = s.period;
     } catch (e) {}
