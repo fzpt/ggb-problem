@@ -2702,8 +2702,10 @@ function createRegularPolygon(opts) {
         }
         qE._defKind = 'parend';
         qE._parIds = [qp.id, qr.id];
-        applyDrivenGray(qE);
         qE._free = (s.type === 'psegfree');
+        applyDrivenGray(qE);
+        /* 自由端是有约束的可动点（glider）：蓝色区别于完全从动点 */
+        if (qE._free) applyGliderColor(qE);
         if (qL) qE._onId = qL.id;
         registry[qEName] = qE;
         trackId(qE.id);

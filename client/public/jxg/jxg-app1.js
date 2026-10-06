@@ -2613,7 +2613,8 @@ function isDrivenPoint(o) {
 }
 function applyDrivenGray(o) {
   if (!isDrivenPoint(o)) return;
-  try { o.setAttribute({ strokeColor: DRIVEN_GRAY, fillColor: DRIVEN_GRAY }); } catch (e) {}
+  /* 计算出来的点（完全确定的从动点）一律锁定：不可拖拽（parend 自由端/glider 不在此列） */
+  try { o.setAttribute({ fixed: true, strokeColor: DRIVEN_GRAY, fillColor: DRIVEN_GRAY }); } catch (e) {}
 }
 function clearSelection() {
   selectedObjs.forEach(highlightOff);
@@ -3812,8 +3813,10 @@ function finishParallelCreate() {
       }
       E._defKind = 'parend';
       E._parIds = [P.id, ref.id];
-      applyDrivenGray(E);
       E._free = (mode === 'psegfree');
+      applyDrivenGray(E);
+      /* 自由端是有约束的可动点（glider）：蓝色区别于完全从动点 */
+      if (E._free) applyGliderColor(E);
       if (L) E._onId = L.id;
       trackId(E.id);
       el = board.create('segment', [P, E], { name: nextId('ps') });
