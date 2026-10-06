@@ -61,6 +61,14 @@ export function AppProvider({ children }) {
   const releaseEditLock = useCallback(async (id) => {
     if (id == null) return;
     setEditingIds((prev) => prev.filter((x) => x !== id));
+    /* 同步清掉本地 locks 里自己的锁：否则要等下一轮轮询（最长 15s）才消失，
+     * 列表按钮会先显示 🔒 再变回"编辑" */
+    setLocks((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     try {
       await releaseProblemLock(id, instanceIdRef.current);
     } catch (e) {
