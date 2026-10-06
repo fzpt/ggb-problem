@@ -30,6 +30,9 @@ document.addEventListener('keydown', function (e) {
       /* 无构建进行时：Esc 取消选中（含依赖联动选中），与 GeoGebra 一致 */
       clearSelection();
       updateSelectHint();
+    } else if (typeof selWidget !== 'undefined' && selWidget) {
+      /* 文本框选中态：Esc 取消选中 */
+      deselectWidget();
     }
     return;
   }
@@ -39,8 +42,15 @@ document.addEventListener('keydown', function (e) {
     else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); }
     return;
   }
-  /* Del：删除当前选中的对象（含级联依赖）；未选中时提示 */
-  if (e.key === 'Delete' || e.key === 'Del') { e.preventDefault(); deleteSelection(); }
+  /* Del：删除当前选中的对象（含级联依赖）；选中文本框时删除该控件；未选中时提示 */
+  if (e.key === 'Delete' || e.key === 'Del') {
+    e.preventDefault();
+    if (typeof selWidget !== 'undefined' && selWidget && !selectedObjs.length) {
+      deleteWidget(selWidget);
+      return;
+    }
+    deleteSelection();
+  }
 });
 /* ---------- 工具栏：模式切换 + 工具组（线段组 / 平行线组） ---------- */
 var TOOL_GROUPS = {
@@ -101,18 +111,9 @@ function setMode(m) {
   try { document.getElementById('rotAngleWrap').style.display = (m === 'rotate') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('ngonWrap').style.display = (m === 'ngon') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('msrExprWrap').style.display = (m === 'mtext') ? 'inline-flex' : 'none'; } catch (e) {}
-  /* 文本框/复选框/按钮共用工具栏输入（内容/标题），placeholder 按模式切换 */
-  try {
-    var wWrap = document.getElementById('widgetInputWrap'), wIn = document.getElementById('widgetInput');
-    var wMode = (m === 'ptext' || m === 'checkbox' || m === 'button') ? m : null;
-    if (wWrap) wWrap.style.display = wMode ? 'inline-flex' : 'none';
-    if (wIn && wMode) {
-      wIn.placeholder = wMode === 'ptext' ? '文本内容' : '标题';
-      wIn.title = wMode === 'ptext' ? '文本框：在此输入要放置的文本内容'
-        : (wMode === 'checkbox' ? '复选框：在此输入标题（脚本在属性面板中设置）'
-        : '按钮：在此输入标题（脚本在属性面板中设置）');
-    }
-  } catch (e) {}
+  /* 控件创建改走弹出对话框（仿 GeoGebra），工具栏不再提供输入框；切工具时关掉未完成的弹框 */
+  try { closeWidgetDialog(); } catch (e) {}
+  try { deselectWidget(); } catch (e) {}
   try { document.getElementById('adriveKWrap').style.display = (m === 'adrive') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('angDirWrap').style.display = (m === 'mang') ? 'inline-flex' : 'none'; } catch (e) {}
   if (m === 'midpoint') seedMidpointFromSelection(preSel);
