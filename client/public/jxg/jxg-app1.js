@@ -879,8 +879,20 @@ var widgets = [];      // 控件注册表（按创建顺序）
 var widgetSeq = 0;     // 控件 id 序号
 var widgetPress = null; // 控件按下跟踪 {w, cx0, cy0, ox, oy, moved, pre}
 var propWidget = null;  // 属性面板当前指向的控件（非画板对象时）
+var selWidget = null;   // 当前选中的控件（文本框单击选中，显示边框）
+var widgetDlgPending = null; // 弹出对话框待确认的创建请求 {kind, sx, sy}，随对话框关闭清空
 function widgetLayer() {
   var box = document.getElementById('jxgbox');
+  /* 控件选中/编辑态样式（一次性注入） */
+  if (box && !document.getElementById('jxgWidgetCss')) {
+    var st = document.createElement('style');
+    st.id = 'jxgWidgetCss';
+    st.textContent =
+      '.jxg-widget-selected{outline:2px solid #1a73e8 !important;outline-offset:3px;}' +
+      '.jxg-widget-editing{outline:2px solid #1a73e8 !important;outline-offset:3px;cursor:text !important;}' +
+      '.jxg-widget-editing span{cursor:text !important;user-select:text !important;-webkit-user-select:text !important;}';
+    document.head.appendChild(st);
+  }
   var layer = document.getElementById('widgetLayer');
   if (!layer && box) {
     layer = document.createElement('div');
@@ -919,14 +931,15 @@ function renderWidgetEl(w) {
   var div = w.el;
   if (!div) return;
   if (w.kind === 'checkbox') {
-    div.innerHTML = '<span style="font-size:15px;color:#24292f;">' +
+    div.innerHTML = '<span style="font-size:17px;color:#24292f;">' +
       (w.checked ? '☑ ' : '☐ ') + escapeHtml(w.caption || '') + '</span>';
   } else if (w.kind === 'button') {
     div.innerHTML = '<span style="display:inline-block;background:#1a73e8;color:#fff;' +
-      'border-radius:5px;padding:4px 14px;font-size:14px;white-space:nowrap;">' +
+      'border-radius:5px;padding:6px 16px;font-size:16px;white-space:nowrap;">' +
       escapeHtml(w.caption || '') + '</span>';
   } else {
-    div.innerHTML = '<span style="font-size:15px;color:#24292f;">' + escapeHtml(w.content || '') + '</span>';
+    div.innerHTML = '<span style="font-size:18px;color:#24292f;">' +
+      escapeHtml(w.content || '').replace(/\n/g, '<br>') + '</span>';
     div.style.cursor = 'move';
   }
 }
@@ -961,9 +974,15 @@ function addWidget(kind, opts, skipTrack) {
     'pointer-events:auto;cursor:pointer;user-select:none;-webkit-user-select:none;';
   w.el = div;
   renderWidgetEl(w);
-  /* 按下：阻止冒泡到画板（不触发工具/平移）；拖拽移动，单击触发 */
+  /* 按下：阻止冒泡到画板（不触发工具/平移）；拖拽移动，单击触发/选中
+   * 注意：Chrome 真实鼠标输入先产生 pointerdown 再产生 mousedown，
+   * 画板容器就是 #jxgbox 本身，两者都必须拦截，否则画板 down 处理会误触（如误开创建弹框） */
+  ['pointerdown', 'touchstart'].forEach(function (tn) {
+    div.addEventListener(tn, function (e) { e.stopPropagation(); }, { passive: true });
+  });
   div.addEventListener('mousedown', function (e) {
     e.stopPropagation();
+    if (w.editing) return;   // inline 编辑态：交还原生行为（文本选区/光标），不启动拖拽
     e.preventDefault();
     if (widgetPress) return;
     widgetPress = { w: w, cx0: e.clientX, cy0: e.clientY,
@@ -986,14 +1005,20 @@ function addWidget(kind, opts, skipTrack) {
       if (pr.moved) {
         pushPreDragHistory(pr.pre);   // 拖拽移动记一次撤销
         try { refreshObjectList(); } catch (e2) {}
+      } else if (w.kind === 'ptext') {
+        selectWidget(w);              // 文本框单击：进入选中态（显示边框）
       } else {
+        deselectWidget();
         fireWidget(w);
       }
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
-  div.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+  div.addEventListener('dblclick', function (e) {
+    e.stopPropagation();
+    if (w.kind === 'ptext' && !w.editing) startWidgetEdit(w);  // 双击文本框：直接编辑
+  });
   div.addEventListener('contextmenu', function (e) { e.stopPropagation(); });
   layer.appendChild(div);
   widgets.push(w);
@@ -1019,6 +1044,7 @@ function clearWidgets() {
   }
   widgets = [];
   propWidget = null;
+  selWidget = null;
 }
 function deleteWidget(w) {
   if (!w || !widgetById(w.id)) return;
@@ -1029,6 +1055,153 @@ function deleteWidget(w) {
   if (propWidget === w) { propWidget = null; closePropPanel(); }
   try { refreshObjectList(); } catch (e) {}
   setStatus('已删除控件 ' + w.id + '。', true);
+}
+/* 静默移除控件（对话框取消等场景）：不记历史 */
+function removeWidgetSilent(w) {
+  if (!w) return;
+  var i = widgets.indexOf(w);
+  if (i >= 0) widgets.splice(i, 1);
+  try { if (w.el && w.el.parentNode) w.el.parentNode.removeChild(w.el); } catch (e) {}
+  if (selWidget === w) selWidget = null;
+  if (propWidget === w) { propWidget = null; try { closePropPanel(); } catch (e2) {} }
+  try { refreshObjectList(); } catch (e3) {}
+}
+/* 文本框选中态：单击选中显示边框；点画布空白/Esc/切工具取消选中 */
+function selectWidget(w) {
+  if (!w || !widgetById(w.id)) return;
+  if (selWidget === w) return;
+  deselectWidget();
+  selWidget = w;
+  if (w.el) w.el.classList.add('jxg-widget-selected');
+  try { refreshObjectList(); } catch (e) {}
+}
+function deselectWidget() {
+  var w = selWidget;
+  selWidget = null;
+  if (!w) return;
+  if (w.editing) endWidgetEdit(w, false);   // 取消选中时若在编辑：按取消处理（还原）
+  if (w.el) w.el.classList.remove('jxg-widget-selected');
+  try { refreshObjectList(); } catch (e) {}
+}
+/* 文本框双击 inline 编辑：Enter 确认，Shift+Enter 换行，Esc 取消，失焦确认 */
+function startWidgetEdit(w) {
+  if (!w || w.kind !== 'ptext' || w.editing || !widgetById(w.id)) return;
+  selectWidget(w);
+  w.editing = true;
+  w.editOrig = w.content || '';
+  var div = w.el;
+  div.classList.add('jxg-widget-editing');
+  div.contentEditable = 'true';
+  try { div.spellcheck = false; } catch (e) {}
+  function onKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); e.stopPropagation();
+      endWidgetEdit(w, true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      endWidgetEdit(w, false);
+    } else {
+      e.stopPropagation();   // 编辑中的其它按键不冒泡（不触发画板快捷键）
+    }
+  }
+  function onBlur() { endWidgetEdit(w, true); }
+  w._editKey = onKey; w._editBlur = onBlur;
+  div.addEventListener('keydown', onKey);
+  div.addEventListener('blur', onBlur);
+  try {
+    div.focus();
+    var r = document.createRange(); r.selectNodeContents(div);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  } catch (e2) {}
+  setStatus('正在编辑文本框：Enter 确认，Shift+Enter 换行，Esc 取消。', true);
+}
+function endWidgetEdit(w, commit) {
+  if (!w || !w.editing) return;
+  w.editing = false;
+  var div = w.el;
+  if (w._editKey && div) div.removeEventListener('keydown', w._editKey);
+  if (w._editBlur && div) div.removeEventListener('blur', w._editBlur);
+  w._editKey = w._editBlur = null;
+  if (div) {
+    div.contentEditable = 'false';
+    div.classList.remove('jxg-widget-editing');
+    try { if (document.activeElement === div) div.blur(); } catch (e) {}
+  }
+  var txt = '';
+  if (commit && div) {
+    try { txt = (div.innerText || '').replace(/\s+$/, ''); } catch (e2) { txt = w.editOrig; }
+  }
+  if (commit && txt !== w.editOrig) {
+    pushHistory();
+    w.content = txt;
+    setStatus('文本框已更新。', true);
+  }
+  w.editOrig = null;
+  renderWidgetEl(w);
+  if (div && selWidget === w) div.classList.add('jxg-widget-selected');
+  try { refreshObjectList(); } catch (e3) {}
+}
+/* 控件创建弹框（仿 GeoGebra）：文本框用多行 textarea，复选框/按钮用单行 input。
+ * kind: 'ptext' | 'checkbox' | 'button'；ok 回调 (ok:boolean, val:string)。
+ * 对话框覆盖画板并阻止事件冒泡，打开期间画布点击不会误建控件。 */
+function openWidgetDialog(kind, cb) {
+  closeWidgetDialog();
+  var box = document.getElementById('jxgbox');
+  if (!box) { cb(false, ''); return; }
+  widgetDlgPending = { kind: kind };
+  var ov = document.createElement('div');
+  ov.id = 'widgetDlgOverlay';
+  ov.style.cssText = 'position:absolute;inset:0;background:rgba(31,35,40,.35);z-index:60;' +
+    'display:flex;align-items:center;justify-content:center;';
+  var isText = kind === 'ptext';
+  var title = isText ? '文本框' : (kind === 'checkbox' ? '复选框' : '按钮');
+  var field = isText
+    ? '<textarea id="widgetDlgText" rows="3" style="width:100%;box-sizing:border-box;' +
+      'font-size:14px;padding:6px 8px;border:1px solid #d0d7de;border-radius:6px;resize:vertical;" ' +
+      'placeholder="输入文本内容（可多行，Shift+Enter 换行）"></textarea>'
+    : '<input id="widgetDlgText" type="text" style="width:100%;box-sizing:border-box;' +
+      'font-size:14px;padding:6px 8px;border:1px solid #d0d7de;border-radius:6px;" placeholder="输入标题">';
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;padding:16px 18px;width:320px;' +
+    'box-shadow:0 8px 28px rgba(0,0,0,.25);">' +
+    '<div style="font-size:14px;font-weight:600;margin-bottom:10px;">' + title + '</div>' + field +
+    '<div style="text-align:right;margin-top:12px;">' +
+    '<button id="widgetDlgCancel" style="font-size:13px;padding:5px 14px;margin-right:8px;' +
+    'border:1px solid #d0d7de;border-radius:6px;background:#fff;cursor:pointer;">取消</button>' +
+    '<button id="widgetDlgOk" style="font-size:13px;padding:5px 14px;border:1px solid #1a73e8;' +
+    'border-radius:6px;background:#1a73e8;color:#fff;cursor:pointer;">确定</button>' +
+    '</div></div>';
+  /* 阻断冒泡到画板：对话框内的点击/双击/指针按下不触发画板工具
+   *（画板容器就是 #jxgbox 本身，pointerdown 也必须拦，否则会误开新的创建弹框） */
+  ['pointerdown', 'touchstart'].forEach(function (tn) {
+    ov.addEventListener(tn, function (e) { e.stopPropagation(); }, { passive: true });
+  });
+  ov.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+  ov.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+  ov.addEventListener('contextmenu', function (e) { e.stopPropagation(); });
+  box.appendChild(ov);
+  var input = ov.querySelector('#widgetDlgText');
+  var done = false;
+  function finish(ok) {
+    if (done) return;
+    done = true;
+    var val = '';
+    try { val = input.value; } catch (e) {}
+    widgetDlgPending = null;
+    closeWidgetDialog();
+    cb(ok, val);
+  }
+  ov.querySelector('#widgetDlgOk').addEventListener('click', function () { finish(true); });
+  ov.querySelector('#widgetDlgCancel').addEventListener('click', function () { finish(false); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (kind !== 'ptext' || !e.shiftKey)) { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+  });
+  setTimeout(function () { try { input.focus(); } catch (e2) {} }, 0);
+}
+function closeWidgetDialog() {
+  widgetDlgPending = null;
+  var ov = document.getElementById('widgetDlgOverlay');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
 }
 /* 控件脚本执行：JavaScript，形参 api
  *   api.show(name) / api.hide(name) / api.toggle(name) —— 按对象名显隐（如 "P1"）
