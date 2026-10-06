@@ -439,11 +439,13 @@ function closePropPanel() {
   var p = document.getElementById('proppanel');
   if (p) p.style.display = 'none';
   propTarget = null;
+  propWidget = null;
   propBoardMode = false;
   syncPropsBtn();
 }
 function openPropPanel(target, cx, cy) {
   propBoardMode = false;
+  propWidget = null;
   var list = Array.isArray(target) ? target.slice() : (target ? [target] : []);
   list = list.filter(function (o) { return o && board.objects[o.id]; });
   if (!list.length) return;
@@ -510,6 +512,7 @@ function setBoardAxesVisible(v) {
 }
 function openBoardPropPanel() {
   propTarget = null;
+  propWidget = null;
   propBoardMode = true;
   renderPropPanel();
   document.getElementById('proppanel').style.display = 'block';
@@ -868,58 +871,170 @@ function makeExprTextEl(expr, x, y, name, skipTrack) {
 }
 /* ============================================================
  * 文本框 / 复选框 / 按钮（GeoGebra 风格控件）
- * 实现为 JSXGraph text 元素：天然可拖拽、可选中、可参与快照/撤销/对象列表。
- * 交互：任何工具模式下，点击（按下松手无位移）即触发动作；按住拖拽则移动控件。
- * 选中/改名/删除/改属性请走左侧对象列表（点击控件本身只会触发它）。
+ * 实现为画板容器内的 HTML 浮层：位置固定在屏幕像素上，不随画板缩放/平移。
+ * 交互：任何工具模式下点击即触发（单击）；按住拖拽移动；配置/删除走对象列表。
+ * 控件不进入 board.objects，独立注册表 widgets 参与快照/撤销/对象列表。
  * ============================================================ */
-var widgetDown = null;    // {el, sx, sy, moved} 控件按下跟踪（down 里置，move 判位移，up 触发）
-var widgetDragPre = null; // 控件拖拽撤销：按下时快照，up 时真移动了才入栈（与表达式文本同语义）
-function widgetCaption(el) {
-  if (el._defKind === 'checkbox') return el._cbCaption || '';
-  if (el._defKind === 'button') return el._btnCaption || '';
-  return '';
+var widgets = [];      // 控件注册表（按创建顺序）
+var widgetSeq = 0;     // 控件 id 序号
+var widgetPress = null; // 控件按下跟踪 {w, cx0, cy0, ox, oy, moved, pre}
+var propWidget = null;  // 属性面板当前指向的控件（非画板对象时）
+function widgetLayer() {
+  var box = document.getElementById('jxgbox');
+  var layer = document.getElementById('widgetLayer');
+  if (!layer && box) {
+    layer = document.createElement('div');
+    layer.id = 'widgetLayer';
+    layer.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;' +
+      'overflow:hidden;pointer-events:none;z-index:20;';
+    box.appendChild(layer);
+  }
+  return layer;
 }
-/* 纯文本框：静态文本（与 mtext 表达式文本区分），可拖拽 */
-function makeTextBox(content, x, y, name, skipTrack) {
-  var el = board.create('text', [x, y, ''], { name: name, fontSize: 15, draggable: true });
-  el._defKind = 'ptext';
-  el._textContent = String(content == null ? '' : content);
-  el.setText(function () { return escapeHtml(el._textContent); });
-  if (!skipTrack) trackId(el.id);
-  return el;
+function widgetById(id) {
+  for (var i = 0; i < widgets.length; i++) if (widgets[i].id === id) return widgets[i];
+  return null;
 }
-/* 复选框：点击切换勾选并执行 _cbScript（api.value 为新状态） */
-function makeCheckbox(caption, x, y, checked, script, name, skipTrack) {
-  var el = board.create('text', [x, y, ''], { name: name, fontSize: 15, draggable: true });
-  el._defKind = 'checkbox';
-  el._cbCaption = String(caption == null || caption === '' ? '复选框' : caption);
-  el._checked = !!checked;
-  el._cbScript = String(script || '');
-  el.setText(function () { return (el._checked ? '☑ ' : '☐ ') + escapeHtml(el._cbCaption); });
-  if (!skipTrack) trackId(el.id);
-  return el;
+function describeWidget(w) {
+  if (!w) return '';
+  if (w.kind === 'ptext') return '文本框 ' + w.id + '：' + (w.content || '');
+  if (w.kind === 'checkbox')
+    return '复选框 ' + w.id + '：' + (w.caption || '') + (w.checked ? '（已勾选）' : '（未勾选）');
+  if (w.kind === 'button') return '按钮 ' + w.id + '：' + (w.caption || '');
+  return w.id || '';
 }
-/* 按钮：点击执行 _btnScript（api.value 为 true） */
-function makeButton(caption, x, y, script, name, skipTrack) {
-  var el = board.create('text', [x, y, ''], { name: name, fontSize: 14, draggable: true });
-  el._defKind = 'button';
-  el._btnCaption = String(caption == null || caption === '' ? '按钮' : caption);
-  el._btnScript = String(script || '');
-  el.setText(function () {
-    return '<span style="display:inline-block;background:#1a73e8;color:#fff;border-radius:5px;' +
-      'padding:4px 14px;cursor:pointer;white-space:nowrap;">' + escapeHtml(el._btnCaption) + '</span>';
+function widgetToStep(w) {
+  if (!w) return null;
+  if (w.kind === 'ptext')
+    return { type: 'ptext', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)], content: w.content || '' };
+  if (w.kind === 'checkbox')
+    return { type: 'checkbox', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)],
+             caption: w.caption || '', checked: !!w.checked, script: w.script || '' };
+  if (w.kind === 'button')
+    return { type: 'button', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)],
+             caption: w.caption || '', script: w.script || '' };
+  return null;
+}
+function renderWidgetEl(w) {
+  var div = w.el;
+  if (!div) return;
+  if (w.kind === 'checkbox') {
+    div.innerHTML = '<span style="font-size:15px;color:#24292f;">' +
+      (w.checked ? '☑ ' : '☐ ') + escapeHtml(w.caption || '') + '</span>';
+  } else if (w.kind === 'button') {
+    div.innerHTML = '<span style="display:inline-block;background:#1a73e8;color:#fff;' +
+      'border-radius:5px;padding:4px 14px;font-size:14px;white-space:nowrap;">' +
+      escapeHtml(w.caption || '') + '</span>';
+  } else {
+    div.innerHTML = '<span style="font-size:15px;color:#24292f;">' + escapeHtml(w.content || '') + '</span>';
+    div.style.cursor = 'move';
+  }
+}
+/* 新建控件并挂到浮层；opts: {id?, caption?, content?, checked?, script?, sx, sy} */
+function addWidget(kind, opts, skipTrack) {
+  var layer = widgetLayer();
+  if (!layer) return null;
+  opts = opts || {};
+  var prefix = kind === 'checkbox' ? 'cb' : (kind === 'button' ? 'bt' : 'tx');
+  var w = {
+    id: opts.id || '',
+    kind: kind,
+    caption: opts.caption != null ? String(opts.caption) : (kind === 'button' ? '按钮' : '复选框'),
+    content: opts.content != null ? String(opts.content) : '',
+    checked: !!opts.checked,
+    script: opts.script != null ? String(opts.script) : '',
+    sx: Math.round(Number(opts.sx) || 0),
+    sy: Math.round(Number(opts.sy) || 0),
+    el: null
+  };
+  if (!w.id || widgetById(w.id) || nameTaken(w.id)) {
+    do { widgetSeq++; w.id = prefix + widgetSeq; } while (widgetById(w.id) || nameTaken(w.id));
+  } else {
+    /* 恢复指定 id 时把序号推高，避免后续自动命名撞车 */
+    var m = /^([a-z]+)(\d+)$/.exec(w.id);
+    if (m && m[1] === prefix) widgetSeq = Math.max(widgetSeq, parseInt(m[2], 10));
+  }
+  var div = document.createElement('div');
+  div.className = 'jxg-widget jxg-widget-' + kind;
+  div.setAttribute('data-wid', w.id);
+  div.style.cssText = 'position:absolute;left:' + w.sx + 'px;top:' + w.sy + 'px;' +
+    'pointer-events:auto;cursor:pointer;user-select:none;-webkit-user-select:none;';
+  w.el = div;
+  renderWidgetEl(w);
+  /* 按下：阻止冒泡到画板（不触发工具/平移）；拖拽移动，单击触发 */
+  div.addEventListener('mousedown', function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (widgetPress) return;
+    widgetPress = { w: w, cx0: e.clientX, cy0: e.clientY,
+                    ox: w.sx, oy: w.sy, moved: false, pre: snapshotState() };
+    function onMove(me) {
+      var pr = widgetPress;
+      if (!pr) return;
+      var dx = me.clientX - pr.cx0, dy = me.clientY - pr.cy0;
+      if (!pr.moved && Math.hypot(dx, dy) > 6) pr.moved = true;
+      if (pr.moved) {
+        w.sx = Math.round(pr.ox + dx); w.sy = Math.round(pr.oy + dy);
+        div.style.left = w.sx + 'px'; div.style.top = w.sy + 'px';
+      }
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      var pr = widgetPress; widgetPress = null;
+      if (!pr) return;
+      if (pr.moved) {
+        pushPreDragHistory(pr.pre);   // 拖拽移动记一次撤销
+        try { refreshObjectList(); } catch (e2) {}
+      } else {
+        fireWidget(w);
+      }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   });
-  if (!skipTrack) trackId(el.id);
-  return el;
+  div.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+  div.addEventListener('contextmenu', function (e) { e.stopPropagation(); });
+  layer.appendChild(div);
+  widgets.push(w);
+  if (!skipTrack) {
+    pushHistory();
+    try { refreshObjectList(); } catch (e) {}
+  }
+  return w;
 }
-function isWidgetEl(o) {
-  return !!o && (o._defKind === 'checkbox' || o._defKind === 'button');
+function makeTextBox(content, sx, sy, skipTrack, id) {
+  return addWidget('ptext', { id: id, content: content, sx: sx, sy: sy }, skipTrack);
+}
+function makeCheckbox(caption, sx, sy, checked, script, skipTrack, id) {
+  return addWidget('checkbox', { id: id, caption: caption, sx: sx, sy: sy,
+                                checked: checked, script: script }, skipTrack);
+}
+function makeButton(caption, sx, sy, script, skipTrack, id) {
+  return addWidget('button', { id: id, caption: caption, sx: sx, sy: sy, script: script }, skipTrack);
+}
+function clearWidgets() {
+  for (var i = 0; i < widgets.length; i++) {
+    try { var el = widgets[i].el; if (el && el.parentNode) el.parentNode.removeChild(el); } catch (e) {}
+  }
+  widgets = [];
+  propWidget = null;
+}
+function deleteWidget(w) {
+  if (!w || !widgetById(w.id)) return;
+  pushHistory();
+  var i = widgets.indexOf(w);
+  if (i >= 0) widgets.splice(i, 1);
+  try { if (w.el && w.el.parentNode) w.el.parentNode.removeChild(w.el); } catch (e) {}
+  if (propWidget === w) { propWidget = null; closePropPanel(); }
+  try { refreshObjectList(); } catch (e) {}
+  setStatus('已删除控件 ' + w.id + '。', true);
 }
 /* 控件脚本执行：JavaScript，形参 api
  *   api.show(name) / api.hide(name) / api.toggle(name) —— 按对象名显隐（如 "P1"）
  *   api.get(name)   —— 按对象名取 JSXGraph 对象（无则返回 null）
  *   api.value       —— 复选框切换后的新状态（true/false）；按钮点击时为 true
- *   api.self        —— 控件自身元素；api.board —— 画板；api.status(msg) —— 状态栏提示
+ *   api.self        —— 控件自身（widgets 注册表对象）；api.board —— 画板；api.status(msg) —— 状态栏提示
  * 可见性变更由调用方统一做一次历史快照（单步撤销）。
  */
 function runWidgetScript(script, ctx) {
@@ -960,24 +1075,80 @@ function runWidgetScript(script, ctx) {
   try { board.update(); } catch (e) {}
   try { refreshObjectList(); } catch (e) {}
 }
-function fireCheckbox(el) {
-  if (!el || !board.objects[el.id]) return;
-  pushHistory();
-  el._checked = !el._checked;
-  try { board.update(); } catch (e) {}
-  setStatus('复选框"' + el._cbCaption + '"：' + (el._checked ? '已勾选' : '已取消勾选') + '。', true);
-  runWidgetScript(el._cbScript, { self: el, value: el._checked });
+function fireWidget(w) {
+  if (!w || !widgetById(w.id)) return;
+  if (w.kind === 'checkbox') {
+    pushHistory();
+    w.checked = !w.checked;
+    renderWidgetEl(w);
+    setStatus('复选框"' + w.caption + '"：' + (w.checked ? '已勾选' : '已取消勾选') + '。', true);
+    runWidgetScript(w.script, { self: w, value: w.checked });
+  } else if (w.kind === 'button') {
+    if (!String(w.script || '').trim()) {
+      setStatus('按钮"' + w.caption + '"没有设置点击脚本，请在属性面板中添加。', false);
+      return;
+    }
+    pushHistory();
+    runWidgetScript(w.script, { self: w, value: true });
+  }
   try { refreshObjectList(); } catch (e) {}
 }
-function fireButton(el) {
-  if (!el || !board.objects[el.id]) return;
-  if (!String(el._btnScript || '').trim()) {
-    setStatus('按钮"' + el._btnCaption + '"没有设置点击脚本，请在属性面板中添加。', false);
-    return;
+/* 控件属性面板：标题/内容 + 事件脚本 + 删除（控件不进 board 对象体系，独立面板） */
+function openWidgetPropPanel(w) {
+  if (!w || !widgetById(w.id)) return;
+  propWidget = w;
+  propTarget = null;
+  propBoardMode = false;
+  var kindName = w.kind === 'checkbox' ? '复选框' : (w.kind === 'button' ? '按钮' : '文本框');
+  document.getElementById('ppTitle').textContent = '属性：' + kindName + ' ' + w.id;
+  var h = '';
+  if (w.kind === 'ptext') {
+    h += '<div class="prow"><span>文本内容</span><span class="ctl">' +
+         '<input type="text" id="ppWText" value="' + escAttr(w.content || '') + '" style="width:150px;"></span></div>';
+  } else {
+    h += '<div class="prow"><span>标题</span><span class="ctl">' +
+         '<input type="text" id="ppWCaption" value="' + escAttr(w.caption || '') + '" style="width:150px;"></span></div>';
+    if (w.kind === 'checkbox')
+      h += '<div class="prow"><span>当前状态</span><span class="ctl">' + (w.checked ? '☑ 已勾选' : '☐ 未勾选') + '</span></div>';
+    var wEvent = w.kind === 'checkbox' ? '切换时执行' : '点击时执行';
+    h += '<div class="prow"><span>' + wEvent + '</span><span class="ctl">' +
+         '<textarea id="ppWScript" rows="5" style="width:150px;font-family:Consolas,monospace;font-size:12px;" ' +
+         'placeholder="JavaScript，如：api.toggle(&quot;P1&quot;);" ' +
+         'title="脚本是 JavaScript，形参 api：show(name)/hide(name)/toggle(name) 按对象名显隐；get(name) 取对象；value 复选框新状态（按钮为 true）；self 控件自身，board 画板，status(msg) 状态栏提示">' +
+         escAttr(w.script || '') + '</textarea></span></div>';
+    h += '<div class="prow"><span></span><span class="ctl" style="font-size:11px;color:#777;">' +
+         'api.show/hide/toggle(name) 显隐对象；<br>api.value 复选框新状态；api.status(msg) 提示</span></div>';
   }
-  pushHistory();
-  runWidgetScript(el._btnScript, { self: el, value: true });
-  try { refreshObjectList(); } catch (e) {}
+  h += '<div class="prow"><span></span><span class="ctl">' +
+       '<button id="ppWDelete" style="font-size:12px;padding:3px 10px;border:1px solid #d0d7de;' +
+       'border-radius:4px;background:#fff;color:#cf222e;cursor:pointer;">删除控件</button></span></div>';
+  h += '<div class="prow"><span></span><span class="ctl" style="font-size:11px;color:#777;">位置固定在屏幕上，不随缩放/平移</span></div>';
+  document.getElementById('ppBody').innerHTML = h;
+  var foot = document.querySelector('#proppanel .pfoot');
+  if (foot) foot.style.display = 'none';
+  var p = document.getElementById('proppanel');
+  if (p) p.style.display = 'block';
+  try { syncPropsBtn(); } catch (e) {}
+  function applyW() {
+    if (!widgetById(w.id)) return;
+    pushHistory();
+    var t = document.getElementById('ppWText');
+    var c = document.getElementById('ppWCaption');
+    var sc = document.getElementById('ppWScript');
+    if (t && w.kind === 'ptext') w.content = t.value;
+    if (c && w.kind !== 'ptext') w.caption = c.value;
+    if (sc && w.kind !== 'ptext') w.script = sc.value;
+    renderWidgetEl(w);
+    try { refreshObjectList(); } catch (e) {}
+  }
+  ['ppWText', 'ppWCaption'].forEach(function (id) {
+    var elm = document.getElementById(id);
+    if (elm) elm.addEventListener('change', applyW);
+  });
+  var scEl = document.getElementById('ppWScript');
+  if (scEl) scEl.addEventListener('change', applyW);
+  var del = document.getElementById('ppWDelete');
+  if (del) del.addEventListener('click', function () { deleteWidget(w); });
 }
 /* 创建从动角点：D 在射线 V→A 上，且 ∠AVD = k × 基准角（逆时针；基准角为角度度量载体）。
  * 单向从动：改基准角/顶点/边点 → D 跟随；D 固定置灰，不可拖。 */
@@ -1615,28 +1786,6 @@ function renderPropPanel() {
     h += '<div class="prow"><span>活动周期（秒）</span><span class="ctl">' +
          '<input type="number" id="ppPeriod" min="0.5" max="120" step="0.5" value="' + per + '"></span></div>';
   }
-  /* 控件（文本框/复选框/按钮）配置：标题/内容 + 事件脚本 */
-  if (!multi && (o._defKind === 'ptext' || o._defKind === 'checkbox' || o._defKind === 'button')) {
-    h += '<div class="psec">控件</div>';
-    if (o._defKind === 'ptext') {
-      h += '<div class="prow"><span>文本内容</span><span class="ctl">' +
-           '<input type="text" id="ppWidgetText" value="' + escAttr(o._textContent || '') + '" style="width:150px;"></span></div>';
-    } else {
-      var wCap = o._defKind === 'checkbox' ? o._cbCaption : o._btnCaption;
-      var wScript = o._defKind === 'checkbox' ? o._cbScript : o._btnScript;
-      var wEvent = o._defKind === 'checkbox' ? '切换时执行' : '点击时执行';
-      h += '<div class="prow"><span>标题</span><span class="ctl">' +
-           '<input type="text" id="ppWidgetCaption" value="' + escAttr(wCap || '') + '" style="width:150px;"></span></div>';
-      if (o._defKind === 'checkbox')
-        h += '<div class="prow"><span>当前状态</span><span class="ctl">' + (o._checked ? '☑ 已勾选' : '☐ 未勾选') + '</span></div>';
-      h += '<div class="prow"><span>' + wEvent + '</span><span class="ctl">' +
-           '<textarea id="ppWidgetScript" rows="4" style="width:150px;font-family:Consolas,monospace;font-size:12px;" ' +
-           'placeholder="JavaScript，如：\napi.toggle(&quot;P1&quot;);\napi.show(&quot;c1&quot;);" ' +
-           'title="脚本是 JavaScript，形参 api：\nshow(name)/hide(name)/toggle(name) 按对象名显隐\n get(name) 取对象\n value 复选框新状态（按钮为 true）\n self 控件自身，board 画板，status(msg) 状态栏提示">' +
-           escAttr(wScript || '') + '</textarea></span></div>';
-      h += '<div class="prow"><span></span><span class="ctl" style="font-size:11px;color:#777;">api.show/hide/toggle(name) 显隐对象；<br>api.value 复选框新状态；api.status(msg) 提示</span></div>';
-    }
-  }
   document.getElementById('ppBody').innerHTML = h;
   /* 接线：input 实时预览，change/首次 input 时记一次历史（一次打开记一次撤销） */
   function markHist() { if (!propHistPushed) { pushHistory(); propHistPushed = true; } }
@@ -1689,35 +1838,6 @@ function renderPropPanel() {
     elm.addEventListener('change', function () { touchedFields[id] = true; preFieldHook(id); markHist(); readAndApply(); });
   });
   /* 控件字段：文本框内容 / 复选框·按钮标题 / 事件脚本（change 时记一次历史并应用） */
-  (function wireWidgetFields() {
-    var tgt = (!propTarget || Array.isArray(propTarget)) ? null : propTarget;
-    if (!tgt) return;
-    var dk = tgt._defKind;
-    if (dk !== 'ptext' && dk !== 'checkbox' && dk !== 'button') return;
-    function applyWidget() {
-      markHist();
-      var capEl = document.getElementById('ppWidgetCaption');
-      var txtEl = document.getElementById('ppWidgetText');
-      var scEl = document.getElementById('ppWidgetScript');
-      if (dk === 'ptext' && txtEl) tgt._textContent = txtEl.value;
-      if (dk === 'checkbox') {
-        if (capEl) tgt._cbCaption = capEl.value;
-        if (scEl) tgt._cbScript = scEl.value;
-      }
-      if (dk === 'button') {
-        if (capEl) tgt._btnCaption = capEl.value;
-        if (scEl) tgt._btnScript = scEl.value;
-      }
-      try { board.update(); } catch (e) {}
-      try { refreshObjectList(); } catch (e) {}
-    }
-    ['ppWidgetText', 'ppWidgetCaption'].forEach(function (id) {
-      var elm = document.getElementById(id);
-      if (elm) elm.addEventListener('change', applyWidget);
-    });
-    var sc = document.getElementById('ppWidgetScript');
-    if (sc) sc.addEventListener('change', applyWidget);
-  })();
   /* 取色器变动时若勾着“透明”：先取消勾选并启用取色器，
    * 否则 readAndApply 会走 ppFillNone 分支继续写 'none' */
   function preFieldHook(id) {
