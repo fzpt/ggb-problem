@@ -986,7 +986,14 @@ function equationTextOf(o) {
  *           Point(对象[, 比例]) / Point(多边形.边N[, 比例]) 约束点 / Midpoint(A, B)
  * 解析为步骤 patch（不含 id/style），由 applyPointRedefine 合并旧步骤保留样式。
  * ============================================================ */
-/* 点算术表达式：P3+P17、P3-P17、2*P3、(A+B)/2、L1*A 等
+/* 点算术中可用的函数返回类型表（与 MSRTEXT_FUNCS 一致）：n=数（可作标量因子）p=点 */
+var PT_ARITH_FUNCS = {
+  distance: 'n', x: 'n', y: 'n', length: 'n', area: 'n', radius: 'n', slope: 'n',
+  abs: 'n', sqrt: 'n', floor: 'n', ceil: 'n', round: 'n', max: 'n', min: 'n', mod: 'n',
+  sin: 'n', cos: 'n', tan: 'n', asin: 'n', acos: 'n', atan: 'n',
+  midpoint: 'p', center: 'p', point: 'p'
+};
+/* 点算术表达式：P3+P17、P3-P17、2*P3、(A+B)/2、L1*A、Distance(P1,P2)*P1 等
  * 点视为位置向量，向量取其位移；结果为表达式点（从动）。 */
 function parsePointArith(text) {
   var s0 = String(text).trim()
@@ -996,7 +1003,7 @@ function parsePointArith(text) {
   for (var ci = 0; ci < s0.length;) {
     var ch = s0[ci];
     if (/\s/.test(ch)) { ci++; continue; }
-    if ('+-*/()'.indexOf(ch) >= 0) { toks.push(ch); ci++; continue; }
+    if ('+-*/(),'.indexOf(ch) >= 0) { toks.push(ch); ci++; continue; }
     var mm = s0.slice(ci).match(/^(\d*\.?\d+|[A-Za-z_][A-Za-z0-9_]*)/);
     if (!mm) throw new Error('无法识别的字符 "' + ch + '"');
     toks.push(mm[1]); ci += mm[1].length;
@@ -1020,6 +1027,46 @@ function parsePointArith(text) {
     if (nm in mv) return node('num', nm, null);
     throw new Error(nm + ' 未定义');
   }
+  /* 函数调用参数：数字 / 度量变量 / 点 / 对象名 / 嵌套函数调用（各按原名序列化，动态重算） */
+  function parseArgAtom() {
+    var t = next();
+    if (t === undefined) throw new Error('函数参数不完整');
+    if (/^\d*\.?\d+$/.test(t)) return { k: 'num', src: t };
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(t)) {
+      if (peek() === '(') return parseCallNode(t);
+      var o = findObjByName(t);
+      if (o && o._measure) return { k: 'num', src: t };
+      if (o && o.elementClass === JXG.OBJECT_CLASS_POINT) return { k: 'pt', src: t };
+      if (o) return { k: 'o', src: t };
+      var mv = collectMeasureVars();
+      if (t in mv) return { k: 'num', src: t };
+      throw new Error(t + ' 未定义');
+    }
+    throw new Error('函数参数 "' + t + '" 无法识别');
+  }
+  /* 函数调用：Fn(参数, …)；返回值按类型生成 num/pt 节点，原样序列化进表达式动态求值 */
+  function parseCallNode(fnName) {
+    var lc = String(fnName).toLowerCase();
+    var ret = PT_ARITH_FUNCS[lc];
+    if (!ret || !MSRTEXT_FUNCS[lc]) throw new Error('不支持的函数 "' + fnName + '"');
+    next();   /* 吃掉 '(' */
+    var args = [];
+    if (peek() !== ')') {
+      for (;;) {
+        args.push(parseArgAtom());
+        if (peek() === ',') { next(); continue; }
+        break;
+      }
+    }
+    if (next() !== ')') throw new Error('缺少右括号');
+    var src = fnName + '(' + args.map(function (a) { return a.src; }).join(',') + ')';
+    /* 试算校验：参数名/类型错误在这里给出明确提示 */
+    try { evalMsrExpr(ret === 'n' ? src : 'x(' + src + ')'); }
+    catch (e) { throw new Error(fnName + ' 调用无效：' + e.message); }
+    var nd = ret === 'n' ? node('num', src, null) : node('pt', 'x(' + src + ')', 'y(' + src + ')');
+    nd.src = src;   /* 作为嵌套函数参数时按原名序列化 */
+    return nd;
+  }
   function parseAtom() {
     var t = next();
     if (t === undefined) throw new Error('表达式不完整');
@@ -1030,6 +1077,7 @@ function parsePointArith(text) {
     }
     if (t === '-') { var u = parseAtom(); return node(u.k, '(-(' + u.sx + '))', u.sy ? '(-(' + u.sy + '))' : null); }
     if (t === '+') return parseAtom();
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(t) && peek() === '(') return parseCallNode(t);
     return atomName(t);
   }
   function join(a, op, b) { return '(' + a + op + b + ')'; }
@@ -1346,7 +1394,7 @@ function renderPropPanel() {
       /* 点/向量：定义可编辑（重定义），回车应用 */
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
            '<span class="ctl"><input type="text" id="ppDefIn" value="' + escAttr(ftxt) + '" ' +
-           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量 / B（跟随点）/ 点算术（P3+P17、P3-P17、2*P3、(A+B)/2）；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
+           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量 / B（跟随点）/ 点算术（P3+P17、P3-P17、2*P3、(A+B)/2、Distance(P1,P2)*P1 等，函数可作标量或点参与运算）；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
            'style="width:168px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;text-align:right;"></span></div>';
     } else {
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
