@@ -54,19 +54,6 @@ board.on('down', function (e) {
     board.mode = board.BOARD_MODE_NONE;
   }
 
-  /* 控件（复选框/按钮）：命中则只记录按下，本轮不走任何工具逻辑；
-   * up 时无位移视为点击触发动作，有位移则为拖拽移动（走 widgetDragPre 撤销） */
-  widgetDown = null;
-  widgetDragPre = null;
-  try {
-    var wHit = findObjectAt(sx, sy, (getUsrCoords(e).usrCoords[1]), (getUsrCoords(e).usrCoords[2]));
-    if (wHit && isWidgetEl(wHit)) {
-      widgetDown = { el: wHit, sx: sx, sy: sy, moved: false };
-      widgetDragPre = { el: wHit, x0: wHit.X(), y0: wHit.Y(), pre: snapshotState() };
-      return;
-    }
-  } catch (eW) { widgetDown = null; widgetDragPre = null; }
-
   /* 单点原生拖拽的撤销支持：按下时若命中一个点，先存下"拖拽前"快照；
    * multiDrag/moveSel 走自己的历史；up 时只有真移动了才入栈，避免纯点击产生空历史 */
   singleDrag = null;
@@ -262,24 +249,24 @@ board.on('down', function (e) {
     var ptextInput = document.getElementById('widgetInput');
     var pcontent = ptextInput ? ptextInput.value : '';
     if (!pcontent.trim()) { setStatus('请先在工具栏右侧输入文本内容。', false); return; }
-    var ptx = makeTextBox(pcontent, x, y, nextSeqId('tx'));
-    setStatus('已创建' + describeDef(ptx) + '。', true);
+    var ptx = makeTextBox(pcontent, sx, sy);
+    setStatus('已创建' + describeWidget(ptx) + '。', true);
     return;
   }
   /* 复选框：工具栏右侧输入标题，点击空白处放置；脚本在属性面板中设置 */
   if (mode === 'checkbox') {
     var cbInput = document.getElementById('widgetInput');
     var cbCap = cbInput ? cbInput.value.trim() : '';
-    var cbx = makeCheckbox(cbCap || '复选框', x, y, false, '', nextSeqId('cb'));
-    setStatus('已创建' + describeDef(cbx) + '。在属性面板中可设置切换脚本。', true);
+    var cbx = makeCheckbox(cbCap || '复选框', sx, sy, false, '');
+    setStatus('已创建' + describeWidget(cbx) + '。在属性面板中可设置切换脚本。', true);
     return;
   }
   /* 按钮：工具栏右侧输入标题，点击空白处放置；脚本在属性面板中设置 */
   if (mode === 'button') {
     var btnInput = document.getElementById('widgetInput');
     var btnCap = btnInput ? btnInput.value.trim() : '';
-    var btx = makeButton(btnCap || '按钮', x, y, '', nextSeqId('bt'));
-    setStatus('已创建' + describeDef(btx) + '。在属性面板中可设置点击脚本。', true);
+    var btx = makeButton(btnCap || '按钮', sx, sy, '');
+    setStatus('已创建' + describeWidget(btx) + '。在属性面板中可设置点击脚本。', true);
     return;
   }
   if (mode === 'mtext') {
@@ -1024,6 +1011,7 @@ function createRegularPolygon(opts) {
   var n = 0;
   try {
     clearUserObjects();
+    clearWidgets();
     n = renderStepsBody(steps);
   } finally {
     board.unsuspendUpdate();
@@ -1670,23 +1658,23 @@ function createRegularPolygon(opts) {
         }
         case 'ptext': {
           if (!Array.isArray(s.at) || s.at.length !== 2 || !s.at.every(function (n) { return Number.isFinite(n); }))
-            throw new Error('第 ' + (i + 1) + ' 步：ptext 需要 at [x,y] 数值坐标');
-          el = makeTextBox(typeof s.content === 'string' ? s.content : '', s.at[0], s.at[1], id, true);
-          break;
+            throw new Error('第 ' + (i + 1) + ' 步：ptext 需要 at [sx,sy] 屏幕像素坐标');
+          makeTextBox(typeof s.content === 'string' ? s.content : '', s.at[0], s.at[1], true, id);
+          return;   // 控件走 widgets 注册表，不进 board.objects
         }
         case 'checkbox': {
           if (!Array.isArray(s.at) || s.at.length !== 2 || !s.at.every(function (n) { return Number.isFinite(n); }))
-            throw new Error('第 ' + (i + 1) + ' 步：checkbox 需要 at [x,y] 数值坐标');
-          el = makeCheckbox(s.caption, s.at[0], s.at[1], !!s.checked,
-                            typeof s.script === 'string' ? s.script : '', id, true);
-          break;
+            throw new Error('第 ' + (i + 1) + ' 步：checkbox 需要 at [sx,sy] 屏幕像素坐标');
+          makeCheckbox(s.caption, s.at[0], s.at[1], !!s.checked,
+                       typeof s.script === 'string' ? s.script : '', true, id);
+          return;   // 控件走 widgets 注册表，不进 board.objects
         }
         case 'button': {
           if (!Array.isArray(s.at) || s.at.length !== 2 || !s.at.every(function (n) { return Number.isFinite(n); }))
-            throw new Error('第 ' + (i + 1) + ' 步：button 需要 at [x,y] 数值坐标');
-          el = makeButton(s.caption, s.at[0], s.at[1],
-                          typeof s.script === 'string' ? s.script : '', id, true);
-          break;
+            throw new Error('第 ' + (i + 1) + ' 步：button 需要 at [sx,sy] 屏幕像素坐标');
+          makeButton(s.caption, s.at[0], s.at[1],
+                     typeof s.script === 'string' ? s.script : '', true, id);
+          return;   // 控件走 widgets 注册表，不进 board.objects
         }
         case 'angdrive': {
           var adv = resolveRef(s.vertex, registry, i),
