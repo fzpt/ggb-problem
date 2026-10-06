@@ -909,7 +909,10 @@ function stepToFormulaText(s) {
     case 'mirrorpt': return id + ' = 镜像(' + s.of + ', ' + s.axis + ')';
     case 'rotate': return id + ' = 旋转(' + s.of + ', 中心' + s.center + ', ' + ppNum(s.angle) + '°)';
     case 'dilate': return id + ' = 位似(' + s.of + ', 中心' + s.center + ', 比' + ppNum(s.ratio) + ')';
-    case 'exprpoint': return id + ' = (' + s.x + ', ' + s.y + ')';
+    case 'exprpoint':
+      /* 用户在定义行输入的原始表达式优先显示（如 Distance(P1,P2)*P1），不显示转换后的 x/y 计算式 */
+      if (s.def) return id + ' = ' + s.def;
+      return id + ' = (' + s.x + ', ' + s.y + ')';
     case 'vector': return id + ' = Vector(' + s.p1 + ', ' + s.p2 + ')';
     case 'vunit': return id + ' = UnitVector(' + s.of + ')';
     case 'vpoint': return id + ' = ' + s.of + ' + ' + ppNum(s.k) + '×' + s.by;
@@ -1271,6 +1274,13 @@ function applyPointRedefine(text) {
   var ns = { id: name };
   for (var k in old) if (k === 'style' || k === 'visible') ns[k] = old[k];
   for (var k2 in patch) ns[k2] = patch[k2];
+  /* 表达式点：记录用户在定义行输入的原始文本，属性面板/步骤列表按原文显示 */
+  if (patch.type === 'exprpoint') {
+    var rawDef = String(text).trim();
+    var dmeq = rawDef.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]*)$/);
+    if (dmeq) rawDef = dmeq[2].trim();
+    if (rawDef) ns.def = rawDef;
+  }
   steps[idx] = ns;
   pushHistory();
   try {

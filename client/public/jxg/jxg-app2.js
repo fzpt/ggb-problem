@@ -461,7 +461,7 @@ function objectToStepRaw(o) {
     if (dk === 'dilate')
       return { type: 'dilate', id: nm, of: oname(o._dilOf), center: oname(o._dilCenter), ratio: o._dilRatio };
     if (dk === 'exprpoint')
-      return { type: 'exprpoint', id: nm, x: o._exprX, y: o._exprY };
+      return { type: 'exprpoint', id: nm, x: o._exprX, y: o._exprY, def: o._defRaw };
     if (dk === 'sidepick')
       return { type: 'intersection', id: nm, e1: oname(o._sideE1), e2: oname(o._sideE2),
                side: { line: oname(o._sideLine), point: oname(o._sidePoint), rel: o._sideRel } };
@@ -2995,6 +2995,7 @@ function createRegularPolygon(opts) {
           var eyFn = function () { try { return evalMsrExpr(s.y); } catch (e) { return NaN; } };
           el = board.create('point', [exFn, eyFn], { name: id, fixed: true });
           el._defKind = 'exprpoint';
+          if (s.def) el._defRaw = s.def;
           applyDrivenGray(el);
           /* 从表达式中提取已注册对象 id，作为闭包依赖（防循环约束检测用） */
           var _exprRefs = [];
