@@ -491,14 +491,6 @@ function objectToStepRaw(o) {
   }
   if (o._isExprText)
     return { type: 'text', id: nm, at: [r4(o.X()), r4(o.Y())], expr: o._exprText };
-  if (dk === 'ptext')
-    return { type: 'ptext', id: nm, at: [r4(o.X()), r4(o.Y())], content: o._textContent || '' };
-  if (dk === 'checkbox')
-    return { type: 'checkbox', id: nm, at: [r4(o.X()), r4(o.Y())],
-             caption: o._cbCaption || '', checked: !!o._checked, script: o._cbScript || '' };
-  if (dk === 'button')
-    return { type: 'button', id: nm, at: [r4(o.X()), r4(o.Y())],
-             caption: o._btnCaption || '', script: o._btnScript || '' };
   if (dk === 'angdrive')
     return { type: 'angdrive', id: nm, vertex: oname(o._adVertex), side: oname(o._adSide),
              k: o._adK, src: o._adSrcName };
@@ -598,6 +590,13 @@ function snapshotState() {
       }
     } catch (e) {}
   });
+  /* 控件（HTML 浮层，屏幕固定）：同样记入快照 */
+  try {
+    widgets.forEach(function (w) {
+      var ws = widgetToStep(w);
+      if (ws) steps.push(ws);
+    });
+  } catch (e) {}
   return { steps: steps, autoN: autoN };
 }
 /* 记录一次历史（调用方保证在变更之前调用） */
@@ -708,12 +707,6 @@ function describeDefRaw(o) {
     try { tv = evalMsrExpr(o._exprText); } catch (e) {}
     return '文本 ' + nm + '：' + o._exprText + ' = ' + (isFinite(tv) ? fmtR(tv) : '?');
   }
-  if (o._defKind === 'ptext')
-    return '文本框 ' + nm + '：' + (o._textContent || '');
-  if (o._defKind === 'checkbox')
-    return '复选框 ' + nm + '：' + (o._cbCaption || '') + (o._checked ? '（已勾选）' : '（未勾选）');
-  if (o._defKind === 'button')
-    return '按钮 ' + nm + '：' + (o._btnCaption || '');
   if (o._defKind === 'angdrive')
     return '从动点 ' + nm + '：∠' + oname(o._adSide) + oname(o._adVertex) + nm +
            ' = ' + ppNum(o._adK) + ' × ∠' + (o._adSrcName || '?') + '（单向从动）';
@@ -847,6 +840,13 @@ function refreshObjectList() {
       '<span class="visdot' + (vis ? '' : ' off') + '" data-id="' + escHtml(id) + '" title="显示 / 隐藏"></span>' +
       '<span class="objdef">' + escHtml(d) + '</span></div>';
   });
+  /* 控件行：点击打开控件属性（配置标题/脚本/删除） */
+  try {
+    widgets.forEach(function (w) {
+      html += '<div class="objrow objrow-widget" data-wid="' + escHtml(w.id) + '" title="点击配置控件">' +
+        '<span class="objdef">' + escHtml(describeWidget(w)) + '</span></div>';
+    });
+  } catch (e) {}
   box.innerHTML = html || '<div class="objempty">暂无对象</div>';
 }
 /* 列表拖拽排序：只改 listOrder 显示顺序。
@@ -1021,6 +1021,12 @@ document.getElementById('objlist').addEventListener('click', function (e) {
   var dot = (t.classList && t.classList.contains('visdot')) ? t : null;
   var row = (t.closest) ? t.closest('.objrow') : null;
   var id = dot ? dot.getAttribute('data-id') : (row ? row.getAttribute('data-id') : null);
+  var wid = row ? row.getAttribute('data-wid') : null;
+  if (wid) {
+    var w = widgetById(wid);
+    if (w) openWidgetPropPanel(w);
+    return;
+  }
   if (!id || !board.objects[id]) return;
   if (dot) { toggleObjVisible(id); return; }
   /* 点行内其他区域：已在选择模式下 Ctrl/⌘/Shift+点击 → 加选/取消，不清空已有选择 */
