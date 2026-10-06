@@ -986,6 +986,84 @@ function equationTextOf(o) {
  *           Point(对象[, 比例]) / Point(多边形.边N[, 比例]) 约束点 / Midpoint(A, B)
  * 解析为步骤 patch（不含 id/style），由 applyPointRedefine 合并旧步骤保留样式。
  * ============================================================ */
+/* 点算术表达式：P3+P17、P3-P17、2*P3、(A+B)/2、L1*A 等
+ * 点视为位置向量，向量取其位移；结果为表达式点（从动）。 */
+function parsePointArith(text) {
+  var s0 = String(text).trim()
+    .replace(/×/g, '*').replace(/·/g, '*').replace(/−/g, '-')
+    .replace(/（/g, '(').replace(/）/g, ')');
+  var toks = [];
+  for (var ci = 0; ci < s0.length;) {
+    var ch = s0[ci];
+    if (/\s/.test(ch)) { ci++; continue; }
+    if ('+-*/()'.indexOf(ch) >= 0) { toks.push(ch); ci++; continue; }
+    var mm = s0.slice(ci).match(/^(\d*\.?\d+|[A-Za-z_][A-Za-z0-9_]*)/);
+    if (!mm) throw new Error('无法识别的字符 "' + ch + '"');
+    toks.push(mm[1]); ci += mm[1].length;
+  }
+  var pos = 0;
+  function peek() { return toks[pos]; }
+  function next() { return toks[pos++]; }
+  function node(kind, sx, sy) { return { k: kind, sx: sx, sy: sy }; }
+  function atomName(nm) {
+    if (/^\d*\.?\d+$/.test(nm)) return node('num', nm, null);
+    var o = findObjByName(nm);
+    if (o && o._measure) return node('num', nm, null);   /* 度量变量（L1、a1…）按标量 */
+    if (o && o.elementClass === JXG.OBJECT_CLASS_POINT) return node('pt', 'x(' + nm + ')', 'y(' + nm + ')');
+    if (o && o.elType === 'arrow') {
+      var pr = o.parents || [];
+      var a = board.objects[pr[0]], b = board.objects[pr[1]];
+      if (!a || !b || !a.name || !b.name) throw new Error(nm + ' 的端点不可引用（用 A + k×' + nm + ' 形式）');
+      return node('pt', '(x(' + b.name + ')-x(' + a.name + '))', '(y(' + b.name + ')-y(' + a.name + '))');
+    }
+    var mv = collectMeasureVars();
+    if (nm in mv) return node('num', nm, null);
+    throw new Error(nm + ' 未定义');
+  }
+  function parseAtom() {
+    var t = next();
+    if (t === undefined) throw new Error('表达式不完整');
+    if (t === '(') {
+      var v = parseExpr();
+      if (next() !== ')') throw new Error('缺少右括号');
+      return v;
+    }
+    if (t === '-') { var u = parseAtom(); return node(u.k, '(-(' + u.sx + '))', u.sy ? '(-(' + u.sy + '))' : null); }
+    if (t === '+') return parseAtom();
+    return atomName(t);
+  }
+  function join(a, op, b) { return '(' + a + op + b + ')'; }
+  function parseTerm() {
+    var v = parseAtom();
+    for (;;) {
+      var t = peek();
+      if (t !== '*' && t !== '/') return v;
+      next();
+      var w = parseAtom();
+      if (v.k === 'num' && w.k === 'num') v = node('num', join(v.sx, t, w.sx), null);
+      else if (t === '*' && v.k === 'num' && w.k === 'pt') v = node('pt', join(v.sx, '*', w.sx), join(v.sx, '*', w.sy));
+      else if (t === '*' && v.k === 'pt' && w.k === 'num') v = node('pt', join(v.sx, '*', w.sx), join(v.sy, '*', w.sx));
+      else if (t === '/' && v.k === 'pt' && w.k === 'num') v = node('pt', join(v.sx, '/', w.sx), join(v.sy, '/', w.sx));
+      else throw new Error('点/向量之间只能用 + - 连接，不能用 ' + t);
+    }
+  }
+  function parseExpr() {
+    var v = parseTerm();
+    for (;;) {
+      var t = peek();
+      if (t !== '+' && t !== '-') return v;
+      next();
+      var w = parseTerm();
+      if (v.k === 'pt' && w.k === 'pt') v = node('pt', join(v.sx, t, w.sx), join(v.sy, t, w.sy));
+      else if (v.k === 'num' && w.k === 'num') v = node('num', join(v.sx, t, w.sx), null);
+      else throw new Error('数字与点不能相加减');
+    }
+  }
+  var root = parseExpr();
+  if (pos !== toks.length) throw new Error('表达式末尾有多余内容');
+  if (root.k !== 'pt') throw new Error('计算结果是数字，不是点');
+  return { type: 'exprpoint', x: root.sx, y: root.sy };
+}
 function parsePointDefText(text, cur) {
   var t = String(text).trim();
   /* 允许带 "名称 = " 前缀（与定义行显示一致） */
@@ -1007,16 +1085,17 @@ function parsePointDefText(text, cur) {
   var m = t.match(/^\(([\s\S]+)\)$/);
   if (m) {
     var parts = splitTopArgs(m[1]);
-    if (parts.length !== 2) throw new Error('坐标形式需要 (x, y) 两个表达式');
-    if (!parts) throw new Error('坐标形式需要 (x, y) 两个表达式');
-    var xs = parts[0].trim(), ys = parts[1].trim();
-    var xn = Number(xs), yn = Number(ys);
-    if (xs !== '' && ys !== '' && isFinite(xn) && isFinite(yn))
-      return { type: 'point', coords: [xn, yn] };
-    /* 非纯数字 → 表达式点；先做一次试算给出明确报错 */
-    try { evalMsrExpr(xs); } catch (e) { throw new Error('x 表达式无效：' + e.message); }
-    try { evalMsrExpr(ys); } catch (e) { throw new Error('y 表达式无效：' + e.message); }
-    return { type: 'exprpoint', x: xs, y: ys };
+    if (parts.length === 2) {
+      var xs = parts[0].trim(), ys = parts[1].trim();
+      var xn = Number(xs), yn = Number(ys);
+      if (xs !== '' && ys !== '' && isFinite(xn) && isFinite(yn))
+        return { type: 'point', coords: [xn, yn] };
+      /* 非纯数字 → 表达式点；先做一次试算给出明确报错 */
+      try { evalMsrExpr(xs); } catch (e) { throw new Error('x 表达式无效：' + e.message); }
+      try { evalMsrExpr(ys); } catch (e) { throw new Error('y 表达式无效：' + e.message); }
+      return { type: 'exprpoint', x: xs, y: ys };
+    }
+    /* 非两元组（如 (A+B)）→ 继续往下做点算术解析 */
   }
   /* Point(对象[, 比例]) / Point(多边形.边N[, 比例]) */
   m = t.match(/^Point\(([\s\S]+)\)$/i);
@@ -1082,7 +1161,11 @@ function parsePointDefText(text, cur) {
     else vecName = rhs;
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(vecName)) throw new Error('向量名 "' + vecName + '" 无效（先定义向量，再写 A + k×向量）');
     var vecObj = findObjByName(vecName);
-    if (!vecObj || vecObj.elType !== 'arrow') throw new Error(vecName + ' 不是向量（用向量工具创建，或给向量定义 Vector(A,B)）');
+    if (!vecObj) throw new Error(vecName + ' 未定义');
+    if (vecObj.elType !== 'arrow') {
+      /* 右侧是点/数字等 → 按点算术解析（P3+P17、A+2.5*B、(A+B)/2 等） */
+      return parsePointArith(t);
+    }
     var kv = Number(kTxt);
     if (!isFinite(kv)) {
       try { kv = evalMsrExpr(kTxt); } catch (e) { throw new Error('倍数无效：' + e.message); }
@@ -1090,6 +1173,8 @@ function parsePointDefText(text, cur) {
     if (!isFinite(kv)) throw new Error('倍数必须是数字或数表达式');
     return { type: 'vpoint', of: m[1], by: vecName, k: kv };
   }
+  /* 其余含运算符的形式按点算术解析：P3-P17、2*P3、(A+B)/2 等 */
+  if (/[-*/()]/.test(t)) return parsePointArith(t);
   throw new Error('无法识别的定义形式');
 }
 /* 向量定义重定义（属性面板"定义"行）：Vector(A, B) / UnitVector(向量/线段/直线) */
@@ -1261,7 +1346,7 @@ function renderPropPanel() {
       /* 点/向量：定义可编辑（重定义），回车应用 */
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
            '<span class="ctl"><input type="text" id="ppDefIn" value="' + escAttr(ftxt) + '" ' +
-           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量 / B（跟随点B）；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
+           'title="回车重定义：点为 (x, y) / (表达式, 表达式) / Point(对象[, 比例]) / Point(多边形.边N[, 比例]) / Midpoint(A, B) / A + k×向量 / B（跟随点）/ 点算术（P3+P17、P3-P17、2*P3、(A+B)/2）；向量为 Vector(A, B) / UnitVector(向量/线段/直线)" ' +
            'style="width:168px;font-size:12px;padding:3px 6px;border:1px solid #d0d7de;border-radius:4px;text-align:right;"></span></div>';
     } else {
       h += '<div class="prow" style="align-items:flex-start;"><span>定义</span>' +
