@@ -918,7 +918,8 @@ function describeWidget(w) {
 function widgetToStep(w) {
   if (!w) return null;
   if (w.kind === 'ptext')
-    return { type: 'ptext', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)], content: w.content || '' };
+    return { type: 'ptext', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)],
+             content: w.content || '', w: w.ww || 220 };
   if (w.kind === 'checkbox')
     return { type: 'checkbox', id: w.id, at: [Math.round(w.sx), Math.round(w.sy)],
              caption: w.caption || '', checked: !!w.checked, script: w.script || '' };
@@ -938,7 +939,11 @@ function renderWidgetEl(w) {
       'border-radius:5px;padding:6px 16px;font-size:16px;white-space:nowrap;">' +
       escapeHtml(w.caption || '') + '</span>';
   } else {
-    div.innerHTML = '<span style="font-size:18px;color:#24292f;">' +
+    /* 文本框：固定宽度、高度自适应——文字换行时高度自动增长 */
+    div.style.width = (w.ww || 220) + 'px';
+    div.style.height = 'auto';
+    div.innerHTML = '<span style="display:block;font-size:18px;color:#24292f;' +
+      'white-space:pre-wrap;overflow-wrap:break-word;word-wrap:break-word;">' +
       escapeHtml(w.content || '').replace(/\n/g, '<br>') + '</span>';
     div.style.cursor = 'move';
   }
@@ -958,6 +963,8 @@ function addWidget(kind, opts, skipTrack) {
     script: opts.script != null ? String(opts.script) : '',
     sx: Math.round(Number(opts.sx) || 0),
     sy: Math.round(Number(opts.sy) || 0),
+    /* 文本框宽度（px）：固定宽度 + 高度自适应，换行时自动增高 */
+    ww: kind === 'ptext' ? Math.min(1200, Math.max(80, Math.round(Number(opts.ww) || 220))) : 0,
     el: null
   };
   if (!w.id || widgetById(w.id) || nameTaken(w.id)) {
@@ -1028,8 +1035,8 @@ function addWidget(kind, opts, skipTrack) {
   }
   return w;
 }
-function makeTextBox(content, sx, sy, skipTrack, id) {
-  return addWidget('ptext', { id: id, content: content, sx: sx, sy: sy }, skipTrack);
+function makeTextBox(content, sx, sy, skipTrack, id, ww) {
+  return addWidget('ptext', { id: id, content: content, sx: sx, sy: sy, ww: ww }, skipTrack);
 }
 function makeCheckbox(caption, sx, sy, checked, script, skipTrack, id) {
   return addWidget('checkbox', { id: id, caption: caption, sx: sx, sy: sy,
@@ -1278,6 +1285,9 @@ function openWidgetPropPanel(w) {
   if (w.kind === 'ptext') {
     h += '<div class="prow"><span>文本内容</span><span class="ctl">' +
          '<input type="text" id="ppWText" value="' + escAttr(w.content || '') + '" style="width:150px;"></span></div>';
+    h += '<div class="prow"><span>宽度(px)</span><span class="ctl">' +
+         '<input type="number" id="ppWWidth" value="' + (w.ww || 220) + '" min="80" max="1200" step="10" ' +
+         'title="文本框固定宽度；文字超出自动换行、高度自动增长" style="width:80px;"></span></div>';
   } else {
     h += '<div class="prow"><span>标题</span><span class="ctl">' +
          '<input type="text" id="ppWCaption" value="' + escAttr(w.caption || '') + '" style="width:150px;"></span></div>';
@@ -1308,13 +1318,19 @@ function openWidgetPropPanel(w) {
     var t = document.getElementById('ppWText');
     var c = document.getElementById('ppWCaption');
     var sc = document.getElementById('ppWScript');
+    var wd = document.getElementById('ppWWidth');
     if (t && w.kind === 'ptext') w.content = t.value;
+    if (wd && w.kind === 'ptext') {
+      var nwv = Math.round(Number(wd.value) || 220);
+      w.ww = Math.min(1200, Math.max(80, nwv));
+      wd.value = w.ww;
+    }
     if (c && w.kind !== 'ptext') w.caption = c.value;
     if (sc && w.kind !== 'ptext') w.script = sc.value;
     renderWidgetEl(w);
     try { refreshObjectList(); } catch (e) {}
   }
-  ['ppWText', 'ppWCaption'].forEach(function (id) {
+  ['ppWText', 'ppWCaption', 'ppWWidth'].forEach(function (id) {
     var elm = document.getElementById(id);
     if (elm) elm.addEventListener('change', applyW);
   });
