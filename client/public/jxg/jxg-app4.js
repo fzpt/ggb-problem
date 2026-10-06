@@ -1662,7 +1662,8 @@ function createRegularPolygon(opts) {
         case 'ptext': {
           if (!Array.isArray(s.at) || s.at.length !== 2 || !s.at.every(function (n) { return Number.isFinite(n); }))
             throw new Error('第 ' + (i + 1) + ' 步：ptext 需要 at [sx,sy] 屏幕像素坐标');
-          makeTextBox(typeof s.content === 'string' ? s.content : '', s.at[0], s.at[1], true, id);
+          makeTextBox(typeof s.content === 'string' ? s.content : '', s.at[0], s.at[1],
+                      true, id, Number(s.w) || 220);
           return;   // 控件走 widgets 注册表，不进 board.objects
         }
         case 'checkbox': {
