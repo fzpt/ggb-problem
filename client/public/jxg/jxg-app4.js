@@ -58,6 +58,7 @@ board.on('down', function (e) {
    * multiDrag/moveSel 走自己的历史；up 时只有真移动了才入栈，避免纯点击产生空历史 */
   singleDrag = null;
   candHighlightOff();   // 新一轮手势开始，清除上一轮残留的候选高亮
+  try { deselectWidget(); } catch (eDW) {}   // 点画布空白处：取消文本框选中态
   try {
     var ptDown = findPointNear(sx, sy);
     if (ptDown && ptDown !== animMoverHit) singleDrag = { point: ptDown, x0: ptDown.X(), y0: ptDown.Y(), pre: snapshotState() };
@@ -244,29 +245,31 @@ board.on('down', function (e) {
     return;
   }
   /* 度量：表达式文本 — 工具栏输入表达式，点击空白处放置 */
-  /* 文本框：工具栏右侧输入内容，点击空白处放置静态文本 */
+  /* 文本框：点击空白处放置，弹出对话框输入文本（仿 GeoGebra）；取消则不创建 */
   if (mode === 'ptext') {
-    var ptextInput = document.getElementById('widgetInput');
-    var pcontent = ptextInput ? ptextInput.value : '';
-    if (!pcontent.trim()) { setStatus('请先在工具栏右侧输入文本内容。', false); return; }
-    var ptx = makeTextBox(pcontent, sx, sy);
-    setStatus('已创建' + describeWidget(ptx) + '。', true);
+    openWidgetDialog('ptext', function (ok, val) {
+      if (!ok || !String(val).trim()) return;
+      var ptx = makeTextBox(val, sx, sy);
+      setStatus('已创建' + describeWidget(ptx) + '。', true);
+    });
     return;
   }
-  /* 复选框：工具栏右侧输入标题，点击空白处放置；脚本在属性面板中设置 */
+  /* 复选框：点击空白处放置，弹出对话框输入标题；脚本在属性面板中设置 */
   if (mode === 'checkbox') {
-    var cbInput = document.getElementById('widgetInput');
-    var cbCap = cbInput ? cbInput.value.trim() : '';
-    var cbx = makeCheckbox(cbCap || '复选框', sx, sy, false, '');
-    setStatus('已创建' + describeWidget(cbx) + '。在属性面板中可设置切换脚本。', true);
+    openWidgetDialog('checkbox', function (ok, val) {
+      if (!ok) return;
+      var cbx = makeCheckbox(String(val).trim() || '复选框', sx, sy, false, '');
+      setStatus('已创建' + describeWidget(cbx) + '。在属性面板中可设置切换脚本。', true);
+    });
     return;
   }
-  /* 按钮：工具栏右侧输入标题，点击空白处放置；脚本在属性面板中设置 */
+  /* 按钮：点击空白处放置，弹出对话框输入标题；脚本在属性面板中设置 */
   if (mode === 'button') {
-    var btnInput = document.getElementById('widgetInput');
-    var btnCap = btnInput ? btnInput.value.trim() : '';
-    var btx = makeButton(btnCap || '按钮', sx, sy, '');
-    setStatus('已创建' + describeWidget(btx) + '。在属性面板中可设置点击脚本。', true);
+    openWidgetDialog('button', function (ok, val) {
+      if (!ok) return;
+      var btx = makeButton(String(val).trim() || '按钮', sx, sy, '');
+      setStatus('已创建' + describeWidget(btx) + '。在属性面板中可设置点击脚本。', true);
+    });
     return;
   }
   if (mode === 'mtext') {
