@@ -727,7 +727,8 @@ function argsNum(args) {
  * 裸标识符：度量变量→数，点→点值，其他对象→对象值；整体结果必须是数。 */
 function evalMsrExpr(src, vars) {
   vars = vars || collectMeasureVars();
-  var s = String(src), i = 0;
+  /* 容忍全角/印刷乘号与负号（属性面板公式行会生成 × 和 −） */
+  var s = String(src).replace(/×/g, '*').replace(/·/g, '*').replace(/−/g, '-'), i = 0;
   function skip() { while (i < s.length && /\s/.test(s[i])) i++; }
   function parseAdd() {
     var v = parseMul();
@@ -1067,7 +1068,8 @@ function parsePointDefText(text, cur) {
   if (m) {
     var basePt = findObjByName(m[1]);
     if (!basePt || basePt.elementClass !== JXG.OBJECT_CLASS_POINT) throw new Error(m[1] + ' 不是点');
-    var rhs = m[2].trim(), kTxt = '1', vecName = '';
+    /* 显示公式用 × 与 −（U+00D7/U+2212），解析前归一化为 ASCII 的 * 和 - */
+    var rhs = m[2].trim().replace(/×/g, '*').replace(/·/g, '*').replace(/−/g, '-'), kTxt = '1', vecName = '';
     var star = rhs.lastIndexOf('*');
     if (star >= 0) { kTxt = rhs.slice(0, star).trim(); vecName = rhs.slice(star + 1).trim(); }
     else vecName = rhs;
@@ -1143,8 +1145,8 @@ function applyPointRedefine(text) {
   var nb = findObjByName(name);
   if (nb) {
     try { selectObject(nb); } catch (e) {}
-    propTarget = nb;
-    renderPropPanel();
+    /* 重建期间 refreshPropDynamic 可能已因旧对象消失关掉面板，这里整体重开（含 display） */
+    openPropPanel(nb);
   }
   setStatus('已重定义 ' + name + '。', true);
 }
