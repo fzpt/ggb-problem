@@ -125,14 +125,24 @@ function isToolFlyoutOpen(gid) {
   return !!(f && !f.hidden);
 }
 function openToolFlyout(gid) {
-  /* 展开时只显示组内"其他"工具，当前工具不重复出现；同时收起另一个组 */
+  /* 展开时只显示组内"其他"工具，当前工具不重复出现；同时收起另一个组。
+   * 面板用 fixed 定位（相对视口），避开工具栏 overflow 的裁剪。 */
   closeToolFlyout();
   var G = TOOL_GROUPS[gid];
-  var cur = document.getElementById(G.main).getAttribute('data-mode');
+  var main = document.getElementById(G.main);
+  var fly = document.getElementById(G.flyout);
+  if (!main || !fly) return;
+  var cur = main.getAttribute('data-mode');
   document.querySelectorAll('#' + G.flyout + ' button[data-groupopt]').forEach(function (b) {
     b.style.display = (b.getAttribute('data-groupopt') === cur) ? 'none' : '';
   });
-  document.getElementById(G.flyout).hidden = false;
+  fly.hidden = false;
+  /* 先按组按钮位置摆放，再按视口右边界收敛，避免超出屏幕 */
+  var r = main.getBoundingClientRect();
+  var fw = fly.offsetWidth || 120;
+  var left = Math.max(4, Math.min(r.left, window.innerWidth - fw - 8));
+  fly.style.left = left + 'px';
+  fly.style.top = (r.bottom + 6) + 'px';
 }
 function closeToolFlyout() {
   Object.keys(TOOL_GROUPS).forEach(function (gid) {
@@ -167,6 +177,12 @@ document.addEventListener('click', function (e) {
   });
   if (!inside) closeToolFlyout();
 });
+/* 下拉面板是 fixed 定位：工具栏横向滚动 / 窗口缩放时收起，避免错位悬空 */
+(function () {
+  var tb = document.getElementById('toolbar');
+  if (tb) tb.addEventListener('scroll', function () { closeToolFlyout(); }, { passive: true });
+  window.addEventListener('resize', function () { closeToolFlyout(); });
+})();
 syncGroupMain('lineGroup', 'segment');   // 初始化线段组主按钮
 syncGroupMain('parallelGroup', 'pline'); // 初始化平行组主按钮
 syncGroupMain('triCenterGroup', 'incenter'); // 初始化三角形中心组主按钮
