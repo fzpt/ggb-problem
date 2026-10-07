@@ -670,6 +670,8 @@ var HINTS = {
   pray:    '当前工具：过点平行射线 — 先点击一点（作起点），再点击一条线段/直线/射线作参照，沿参照点1→点2方向作射线。',
   pseg:    '当前工具：过点等长平行线段 — 先点击一点（作起点），再点击一条线段/直线/射线作参照，作与参照等长的平行线段。',
   psegfree:'当前工具：过点不等长平行线段 — 先点击一点，再点击参照线；生成后拖动远端端点可沿方向调整长度。',
+  coniccenter:'当前工具：中心 — 点击圆/椭圆/双曲线/抛物线/五点二次曲线，生成中心点（抛物线给顶点；曲线变化时联动，缺省名 O）。',
+  conicfocus:'当前工具：焦点 — 点击椭圆/双曲线/抛物线/五点二次曲线，生成焦点（曲线变化时联动，缺省名 F1、F2；圆没有焦点）。',
   axsym:   '当前工具：轴对称 — 先点击一条直线/线段/射线作为对称轴。',
   axsym_pick: '已选对称轴 — 点选要对称的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成镜像；Esc 退出。',
   ctsym:   '当前工具：中心对称 — 先点击一个点作为对称中心。',
@@ -855,7 +857,7 @@ function isDrivenPoint(o) {
    * 不等长平行线段的远端（_free）可沿方向拉动 */
   if (dk === 'glider') return false;
   if (dk === 'parend' && o._free) return false;
-  return dk === 'midpoint' || dk === 'footpoint' || dk === 'tricenter' ||
+  return dk === 'midpoint' || dk === 'footpoint' || dk === 'tricenter' || dk === 'coniccenter' || dk === 'conicfocus' ||
          dk === 'mirrorpt' || dk === 'parend' || dk === 'pfoot' ||
          dk === 'dilate' || dk === 'rotate' || dk === 'exprpoint' || dk === 'sidepick' || dk === 'vpoint' ||
          dk === 'ngonpt' || dk === 'angdrive';
@@ -966,6 +968,7 @@ function directDepIds(o) {
   ['_arc3pts', '_tcIds', '_bisIds', '_psegIds', '_mirrorIds', '_parIds', '_perpIds', '_sideIds', '_depIds'].forEach(function (k) {
     if (o[k]) for (i = 0; i < o[k].length; i++) push(o[k][i]);
   });
+  if (o._ccConicId) push(o._ccConicId);   // 二次曲线中心/焦点：依赖的曲线（字符串非数组，单独处理）
   if (o._onId) push(o._onId);
   if (o._polyEdge) push(o._polyEdge.polyId);
   return ids;
@@ -1250,6 +1253,8 @@ function collectDependents(rootId) {
           if (doomed[o._conicIds[ci]]) { doomed[id] = true; changed = true; break; }
         }
       }
+      /* 二次曲线中心/焦点：依赖的曲线记在 _ccConicId 里，显式检查 */
+      if (o._ccConicId && doomed[o._ccConicId]) { doomed[id] = true; changed = true; }
       /* 多边形边上的交点：边不是独立登记对象，ancestors 覆盖不到多边形，需显式检查 */
       if (o._polyEdge && doomed[o._polyEdge.polyId]) { doomed[id] = true; changed = true; }
       /* 过点平行线：隐藏方向点未登记，ancestors 覆盖不到过点/参照线，需显式检查 */
