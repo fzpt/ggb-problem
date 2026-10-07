@@ -52,14 +52,16 @@ document.addEventListener('keydown', function (e) {
     deleteSelection();
   }
 });
-/* ---------- 工具栏：模式切换 + 工具组（线段组 / 平行线组） ---------- */
+/* ---------- 工具栏：模式切换 + 工具组（线段组 / 三角形中心组 / 平行线组 / 二次曲线组） ---------- */
 var TOOL_GROUPS = {
   lineGroup:     { main: 'lineGroupMain',     arrow: 'lineGroupArrow',     flyout: 'lineGroupFlyout',
                    modes: ['segment', 'line', 'ray'] },
   triCenterGroup:{ main: 'triCenterGroupMain',arrow: 'triCenterGroupArrow',flyout: 'triCenterGroupFlyout',
                    modes: ['incenter', 'circumcenter', 'orthocenter'] },
   parallelGroup: { main: 'parallelGroupMain', arrow: 'parallelGroupArrow', flyout: 'parallelGroupFlyout',
-                   modes: ['pline', 'pray', 'pseg', 'psegfree'] }
+                   modes: ['pline', 'pray', 'pseg', 'psegfree'] },
+  conicGroup:    { main: 'conicGroupMain',    arrow: 'conicGroupArrow',    flyout: 'conicGroupFlyout',
+                   modes: ['coniccenter', 'conicfocus'] }
 };
 function syncGroupMain(gid, m) {
   /* 把组主按钮的外观同步为组内当前工具 */
@@ -519,6 +521,11 @@ function objectToStepRaw(o) {
     if (dk === 'tricenter' && o._tcIds)
       return { type: 'tricenter', id: nm, kind: o._tcKind,
                points: [oname(o._tcIds[0]), oname(o._tcIds[1]), oname(o._tcIds[2])] };
+    if (dk === 'coniccenter' && o._ccConicId)
+      return { type: 'coniccenter', id: nm, conic: oname(o._ccConicId), kind: o._ccKind };
+    if (dk === 'conicfocus' && o._ccConicId)
+      return { type: 'conicfocus', id: nm, conic: oname(o._ccConicId),
+               kind: o._ccKind, index: o._ccIndex || 0 };
     return { type: 'point', id: nm, coords: [r4(o.X()), r4(o.Y())] };
   }
   if (o.elType === 'segment') {
@@ -732,6 +739,12 @@ function describeDefRaw(o) {
     var tcl = o._tcKind === 'incenter' ? '内心' : (o._tcKind === 'circumcenter' ? '外心' : '垂心');
     return tcl + ' ' + nm + '：△' + oname(o._tcIds[0]) + oname(o._tcIds[1]) + oname(o._tcIds[2]) + ' 的' + tcl;
   }
+  if (o._defKind === 'coniccenter' && o._ccConicId) {
+    var cck = o._ccKind === 'parvertex' ? '顶点' : '中心';
+    return cck + ' ' + nm + '：' + oname(o._ccConicId) + ' 的' + cck;
+  }
+  if (o._defKind === 'conicfocus' && o._ccConicId)
+    return '焦点 ' + nm + '：' + oname(o._ccConicId) + ' 的焦点' + ((o._ccIndex || 0) + 1);
   if (o._defKind === 'bisector' && o._bisIds)
     return '角平分线 ' + nm + '：∠' + oname(o._bisIds[1]) + oname(o._bisIds[0]) + oname(o._bisIds[2]) + ' 的平分线';
   if (o._defKind === 'perpseg' && o._psegIds) {
@@ -1125,7 +1138,7 @@ document.getElementById('objlist').addEventListener('dblclick', function (e) {
 function renameRefsInStep(s, oldN, newN) {
   var c = {};
   for (var k in s) c[k] = s[k];
-  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex', 'f1', 'f2', 'p', 'focus', 'directrix', 'src', 'side'].forEach(function (k) {
+  ['p1', 'p2', 'center', 'through', 'line', 'point', 'e1', 'e2', 'on', 'ref', 'polygon', 'end', 'of', 'axis', 'vertex', 'f1', 'f2', 'p', 'focus', 'directrix', 'src', 'side', 'conic'].forEach(function (k) {
     if (c[k] === oldN) c[k] = newN;
   });
   if (c.mirror) {  // 注意深拷贝：原实现是浅拷贝，直接改会污染原步骤
@@ -1319,6 +1332,243 @@ function createTriCenter(kind, A, B, C, name, skipTrack) {
   applyDrivenGray(el);
   if (!skipTrack) trackId(el.id);
   return el;
+}
+/* ---------- 二次曲线中心 / 焦点 ---------- */
+/* 从 5 个点拟合隐式方程 Ax²+Bxy+Cy²+Dx+Ey+F=0，返回 [A,B,C,D,E,F]（整体差非零倍数）。
+ * pts: [[x,y]...] 长度 5；退化（系数全零）返回 null。 */
+function conicCoeff5(pts) {
+  var n = 5, m = 6, i, j, c;
+  var a = pts.map(function (p) {
+    var x = p[0], y = p[1];
+    return [x * x, x * y, y * y, x, y, 1];
+  });
+  var where = [-1, -1, -1, -1, -1, -1], row = 0;
+  for (c = 0; c < m && row < n; c++) {
+    var sel = row;
+    for (i = row; i < n; i++)
+      if (Math.abs(a[i][c]) > Math.abs(a[sel][c])) sel = i;
+    if (Math.abs(a[sel][c]) < 1e-12) continue;
+    var tmp = a[sel]; a[sel] = a[row]; a[row] = tmp;
+    where[c] = row;
+    for (i = row + 1; i < n; i++) {
+      var f = a[i][c] / a[row][c];
+      for (j = c; j < m; j++) a[i][j] -= f * a[row][j];
+    }
+    row++;
+  }
+  var freeCol = -1;
+  for (c = 0; c < m; c++) if (where[c] < 0) { freeCol = c; break; }
+  if (freeCol < 0) return null;
+  var x = [0, 0, 0, 0, 0, 0];
+  x[freeCol] = 1;
+  for (c = m - 1; c >= 0; c--) {
+    if (where[c] < 0) continue;
+    var r = where[c], s = 0;
+    for (j = c + 1; j < m; j++) s += a[r][j] * x[j];
+    x[c] = -s / a[r][c];
+  }
+  var mx = 0;
+  for (c = 0; c < m; c++) mx = Math.max(mx, Math.abs(x[c]));
+  if (mx < 1e-12) return null;
+  return x.map(function (v) { return v / mx; });
+}
+/* 由隐式方程系数求中心；抛物线型（无中心）返回 null */
+function conicCenterOf(cf) {
+  var A = cf[0], B = cf[1], C = cf[2], D = cf[3], E = cf[4];
+  var det = 4 * A * C - B * B;
+  if (Math.abs(det) < 1e-9) return null;
+  return [(B * E - 2 * C * D) / det, (B * D - 2 * A * E) / det];
+}
+/* 由隐式方程系数求焦点/顶点。
+ * 返回 null（退化）或 {type:'ellipse'|'hyperbola'|'parabola'|'circle',
+ * center:[x,y]|null, foci:[[x,y],...], vertex:[x,y]|null} */
+function conicFociOf(cf) {
+  var A = cf[0], B = cf[1], C = cf[2], D = cf[3], E = cf[4], F = cf[5];
+  var EPS = 1e-9;
+  var th = 0.5 * Math.atan2(B, A - C);   // 主轴旋转角（对角化二次型）
+  var co = Math.cos(th), si = Math.sin(th);
+  var A2 = A * co * co + B * co * si + C * si * si;
+  var C2 = A * si * si - B * co * si + C * co * co;
+  if (Math.abs(A2) < Math.abs(C2)) {
+    /* 把接近零的特征值转到 C2（抛物线轴统一为 y' 方向；椭圆/双曲线分支对交换对称，安全） */
+    th += Math.PI / 2; co = Math.cos(th); si = Math.sin(th);
+    A2 = A * co * co + B * co * si + C * si * si;
+    C2 = A * si * si - B * co * si + C * co * co;
+  }
+  var D2 = D * co + E * si, E2 = -D * si + E * co;
+  function rot(px, py) { return [co * px - si * py, si * px + co * py]; }
+  if (Math.abs(C2) < 1e-9) {
+    /* 抛物线型：A2 x'² + D2 x' + E2 y' + F = 0（系数已归一化，直接用绝对阈值） */
+    if (Math.abs(A2) < EPS || Math.abs(E2) < EPS) return null;
+    var xv = -D2 / (2 * A2);
+    var yv = -(F - D2 * D2 / (4 * A2)) / E2;
+    var f = -E2 / (4 * A2);              // 标准形 y''=x''²/(4f) 的 f
+    var vxy = rot(xv, yv), fxy = rot(xv, yv + f);
+    return { type: 'parabola', center: null, foci: [[fxy[0], fxy[1]]], vertex: [vxy[0], vxy[1]] };
+  }
+  var cen = conicCenterOf(cf);
+  if (!cen) return null;
+  var h = cen[0], k = cen[1];
+  var Fp = A * h * h + B * h * k + C * k * k + D * h + E * k + F;
+  if (Math.abs(Fp) < EPS) return null;   // 退化（直线对/单点）
+  var P = -Fp / A2, Q = -Fp / C2;        // 化为 x''²/P + y''²/Q = 1
+  if (P * Q > 0) {
+    if (P <= EPS || Q <= EPS) return null;   // 虚椭圆
+    var aa = Math.sqrt(Math.max(P, Q)), bb = Math.sqrt(Math.min(P, Q));
+    var phi = (P >= Q) ? th : th + Math.PI / 2;   // 长轴方向角
+    var cc = Math.sqrt(Math.max(aa * aa - bb * bb, 0));
+    if (cc < 1e-9 * aa) return { type: 'circle', center: [h, k], foci: [[h, k]], vertex: null };
+    var dx = cc * Math.cos(phi), dy = cc * Math.sin(phi);
+    return { type: 'ellipse', center: [h, k], foci: [[h + dx, k + dy], [h - dx, k - dy]], vertex: null };
+  }
+  var qa2, qb2, phih;
+  if (P > 0) { qa2 = P; qb2 = -Q; phih = th; }
+  else { qa2 = Q; qb2 = -P; phih = th + Math.PI / 2; }
+  if (qa2 <= EPS || qb2 <= EPS) return null;
+  var ch = Math.sqrt(qa2 + qb2);
+  var dxh = ch * Math.cos(phih), dyh = ch * Math.sin(phih);
+  return { type: 'hyperbola', center: [h, k], foci: [[h + dxh, k + dyh], [h - dxh, k - dyh]], vertex: null };
+}
+/* 五点二次曲线 el 的实时隐式方程系数（_conicIds 存 5 个定义点） */
+function conic5CoeffLive(el) {
+  var ids = (el && el._conicIds) || [];
+  if (ids.length < 5) return null;
+  var pts = [];
+  for (var i = 0; i < 5; i++) {
+    var p = board.objects[ids[i]];
+    if (!p || p.elementClass !== JXG.OBJECT_CLASS_POINT) return null;
+    pts.push([p.X(), p.Y()]);
+  }
+  return conicCoeff5(pts);
+}
+/* 圆锥曲线定义信息：{type, ...}；type ∈ circleThrough/circleRadius/circle3/ellipse/
+ * hyperbola/parabola/conic5；非圆锥曲线返回 null */
+function conicDefInfo(el) {
+  if (!el) return null;
+  var dk = el._defKind;
+  if (dk === 'circleThrough' || dk === 'circleRadius') {
+    var par = el.parents || [];
+    var c0 = par[0] && par[0].id ? par[0] : (par[0] ? board.objects[par[0]] : null);
+    if (!c0) return null;
+    return { type: dk, centerId: c0.id };
+  }
+  if (dk === 'circle3') {
+    var pp = el.parents || [];
+    if (pp.length < 3) return null;
+    var ids = pp.slice(0, 3).map(function (q) { return q && q.id ? q.id : q; });
+    if (ids.some(function (id) { return !board.objects[id]; })) return null;
+    return { type: 'circle3', ptIds: ids };
+  }
+  if (dk === 'ellipse' || dk === 'hyperbola') {
+    var ci = el._conicIds || [];
+    if (ci.length < 3 || !board.objects[ci[0]] || !board.objects[ci[1]]) return null;
+    return { type: dk, f1: ci[0], f2: ci[1] };
+  }
+  if (dk === 'parabola') {
+    var pi = el._conicIds || [];
+    if (pi.length < 2 || !board.objects[pi[0]] || !board.objects[pi[1]]) return null;
+    return { type: 'parabola', focus: pi[0], directrix: pi[1] };
+  }
+  if (dk === 'conic') {
+    var ki = el._conicIds || [];
+    if (ki.length < 5) return null;
+    return { type: 'conic5' };
+  }
+  return null;
+}
+/* 中心点实时坐标：kind ∈ focimid（两焦点中点）/ circum3（三点圆外心）/
+ * parvertex（抛物线顶点：焦点与准线垂足的中点）/ coeff5（五点拟合：中心或抛物线型顶点） */
+function conicCenterXY(el, kind) {
+  if (!el || !board.objects[el.id]) return null;
+  if (kind === 'focimid') {
+    var ci = el._conicIds || [];
+    var f1 = board.objects[ci[0]], f2 = board.objects[ci[1]];
+    if (!f1 || !f2) return null;
+    return [(f1.X() + f2.X()) / 2, (f1.Y() + f2.Y()) / 2];
+  }
+  if (kind === 'circum3') {
+    var pp = (el.parents || []).slice(0, 3);
+    if (pp.length < 3) return null;
+    var r = circumcenterOf(pp[0], pp[1], pp[2]);
+    return r;
+  }
+  if (kind === 'parvertex') {
+    var pi = el._conicIds || [];
+    var F = board.objects[pi[0]], L = board.objects[pi[1]];
+    if (!F || !L || !L.point1 || !L.point2) return null;
+    var foot = perpFootParam(F, L.point1, L.point2);
+    if (!foot) return null;
+    return [(F.X() + foot.x) / 2, (F.Y() + foot.y) / 2];
+  }
+  if (kind === 'coeff5') {
+    var cf = conic5CoeffLive(el);
+    if (!cf) return null;
+    var cen = conicCenterOf(cf);
+    if (cen) return cen;
+    var fo = conicFociOf(cf);
+    return (fo && fo.vertex) ? fo.vertex : null;
+  }
+  return null;
+}
+/* 焦点实时坐标：kind ∈ coeff5；index 0/1 */
+function conicFocusXY(el, kind, index) {
+  if (!el || !board.objects[el.id]) return null;
+  if (kind === 'coeff5') {
+    var cf = conic5CoeffLive(el);
+    if (!cf) return null;
+    var fo = conicFociOf(cf);
+    if (!fo || !fo.foci || !fo.foci.length) return null;
+    if (fo.type === 'circle') return null;   // 圆按 GeoGebra 无焦点
+    var i = Math.min(index || 0, fo.foci.length - 1);
+    return fo.foci[i];
+  }
+  return null;
+}
+/* 已存在的中心/焦点点（去重用） */
+function findConicCenter(conicId) {
+  for (var id in board.objects) {
+    var o = board.objects[id];
+    if (o && o._defKind === 'coniccenter' && o._ccConicId === conicId) return o;
+  }
+  return null;
+}
+function findConicFocus(conicId, index) {
+  for (var id in board.objects) {
+    var o = board.objects[id];
+    if (o && o._defKind === 'conicfocus' && o._ccConicId === conicId && (o._ccIndex || 0) === (index || 0)) return o;
+  }
+  return null;
+}
+/* 创建二次曲线中心点（实时联动、灰色 fixed） */
+function createConicCenter(el, kind, name, skipTrack) {
+  var nm = name || allocName('O', 'O');
+  var elId = el.id;
+  var pt = board.create('point', [
+    function () { var e2 = board.objects[elId]; var p = conicCenterXY(e2, kind); return p ? p[0] : 0; },
+    function () { var e2 = board.objects[elId]; var p = conicCenterXY(e2, kind); return p ? p[1] : 0; }
+  ], { name: nm });
+  pt._defKind = 'coniccenter';
+  pt._ccConicId = elId;
+  pt._ccKind = kind;
+  applyDrivenGray(pt);
+  if (!skipTrack) trackId(pt.id);
+  return pt;
+}
+/* 创建二次曲线焦点（实时联动、灰色 fixed） */
+function createConicFocus(el, kind, index, name, skipTrack) {
+  var nm = name || allocName('F' + ((index || 0) + 1), 'F');
+  var elId = el.id, idx = index || 0;
+  var pt = board.create('point', [
+    function () { var e2 = board.objects[elId]; var p = conicFocusXY(e2, kind, idx); return p ? p[0] : 0; },
+    function () { var e2 = board.objects[elId]; var p = conicFocusXY(e2, kind, idx); return p ? p[1] : 0; }
+  ], { name: nm });
+  pt._defKind = 'conicfocus';
+  pt._ccConicId = elId;
+  pt._ccKind = kind;
+  pt._ccIndex = idx;
+  applyDrivenGray(pt);
+  if (!skipTrack) trackId(pt.id);
+  return pt;
 }
 /* ---------- 角平分线 ---------- */
 /* 角 A-V-B 内角平分线方向上的点（V + 单位方向），返回用户坐标 */
