@@ -281,7 +281,9 @@
   #toolbar button.toolarrow:hover { border: none; background: transparent; color: #1f6feb; }
   .toolgroup.group-active > .toolarrow { color: #fff; }
   .toolgroup.group-active > .toolarrow:hover { color: #fff; }
-  .toolflyout { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  /* 下拉面板用 fixed 定位（JS 计算坐标）：工具栏是 overflow-x:auto 的横向滚动容器，
+   * absolute 定位会被垂直裁掉，导致下拉菜单点不开 */
+  .toolflyout { position: fixed; z-index: 60;
     background: #fff; border: 1px solid #d0d7de; border-radius: 10px;
     box-shadow: 0 6px 18px rgba(0,0,0,.14); padding: 5px;
     display: flex; flex-direction: column; gap: 4px; }
