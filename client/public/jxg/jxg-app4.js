@@ -581,6 +581,96 @@ board.on('down', function (e) {
       document.getElementById('hint').textContent =
         '已选第 ' + pendingPts.length + ' 点' + reuseLabel(rk) + '，还需 ' + (5 - pendingPts.length) + ' 点。';
     }
+  } else if (mode === 'coniccenter' || mode === 'conicfocus') {
+    /* 中心 / 焦点：点击一条二次曲线（圆/椭圆/双曲线/抛物线/五点二次曲线） */
+    var cvx = findCurveAt(sx, sy);
+    var cinfo = cvx ? conicDefInfo(cvx) : null;
+    if (!cvx || !cinfo) {
+      setStatus('请点击一条圆、椭圆、双曲线、抛物线或二次曲线。', false);
+      return;
+    }
+    var cvn = cvx.name || cvx.id;
+    if (mode === 'coniccenter') {
+      if (cinfo.type === 'circleThrough' || cinfo.type === 'circleRadius') {
+        /* 圆心已是对象：直接选中，不新建 */
+        var cp0 = board.objects[cinfo.centerId];
+        if (cp0) {
+          selectSingle(cp0);
+          setStatus('圆 ' + cvn + ' 的圆心是 ' + (cp0.name || cp0.id) + '（已选中）。', true);
+        } else setStatus('找不到该圆的圆心点。', false);
+        return;
+      }
+      var dupC = findConicCenter(cvx.id);
+      if (dupC) {
+        flashOn(dupC);
+        setStatus('该曲线的' + (dupC._ccKind === 'parvertex' ? '顶点' : '中心') + '已存在：' + dupC.name + '。', true);
+        return;
+      }
+      var ckind = (cinfo.type === 'ellipse' || cinfo.type === 'hyperbola') ? 'focimid'
+                : (cinfo.type === 'circle3' ? 'circum3'
+                : (cinfo.type === 'parabola' ? 'parvertex' : 'coeff5'));
+      if (!conicCenterXY(cvx, ckind)) {
+        setStatus('无法确定该曲线的中心（退化）。', false);
+        return;
+      }
+      var cpt = createConicCenter(cvx, ckind);   // 内部 trackId 记一次撤销
+      flashOn(cpt);
+      var ckLabel = ckind === 'parvertex' ? '顶点' : '中心';
+      setStatus('已创建' + cvn + ' 的' + ckLabel + ' ' + cpt.name + '（曲线变化时联动）。', true);
+      document.getElementById('hint').textContent = HINTS.coniccenter;
+    } else {
+      /* 焦点 */
+      if (cinfo.type === 'ellipse' || cinfo.type === 'hyperbola') {
+        /* 焦点已是对象：选中它们，不新建 */
+        var ff1 = board.objects[cinfo.f1], ff2 = board.objects[cinfo.f2];
+        clearSelection();
+        if (ff1) { selectedObjs.push(ff1); highlightOn(ff1); }
+        if (ff2 && (!ff1 || ff2.id !== ff1.id)) { selectedObjs.push(ff2); highlightOn(ff2); }
+        recomputeDepSelection(); updateSelectHint(); syncListSelection(); syncPropPanelToSelection();
+        var fnames = [ff1 && (ff1.name || ff1.id), ff2 && (ff2.name || ff2.id)].filter(Boolean).join('、');
+        setStatus(cvn + ' 的焦点是 ' + fnames + '（已选中）。', true);
+        return;
+      }
+      if (cinfo.type === 'parabola') {
+        var ffp = board.objects[cinfo.focus];
+        if (ffp) {
+          selectSingle(ffp);
+          setStatus(cvn + ' 的焦点是 ' + (ffp.name || ffp.id) + '（已选中）。', true);
+        } else setStatus('找不到该抛物线的焦点。', false);
+        return;
+      }
+      if (cinfo.type === 'circleThrough' || cinfo.type === 'circleRadius' || cinfo.type === 'circle3') {
+        setStatus('圆没有焦点。', false);
+        return;
+      }
+      /* 五点二次曲线：实时解算焦点（椭圆/双曲线两个，抛物线型一个；圆型无焦点） */
+      var ccf = conic5CoeffLive(cvx), cfo = ccf && conicFociOf(ccf);
+      if (!cfo || !cfo.foci || !cfo.foci.length) {
+        setStatus('无法确定该曲线的焦点（退化）。', false);
+        return;
+      }
+      if (cfo.type === 'circle') { setStatus('圆没有焦点。', false); return; }
+      var newF = [], fi;
+      for (fi = 0; fi < cfo.foci.length; fi++) {
+        var dF = findConicFocus(cvx.id, fi);
+        if (dF) { flashOn(dF); newF.push(dF); }
+      }
+      var missing = [];
+      for (fi = 0; fi < cfo.foci.length; fi++) if (!findConicFocus(cvx.id, fi)) missing.push(fi);
+      if (missing.length) {
+        pushHistory();   // 两个焦点记一次撤销
+        for (fi = 0; fi < missing.length; fi++) {
+          var nfp = createConicFocus(cvx, 'coeff5', missing[fi], null, true);
+          createdIds.push(nfp.id);
+          newF.push(nfp);
+          flashOn(nfp);
+        }
+        try { refreshObjectList(); } catch (e) {}
+      }
+      setStatus('已创建' + cvn + ' 的焦点 ' + newF.map(function (p) { return p.name; }).join('、') +
+                '（曲线变化时联动）。', true);
+      document.getElementById('hint').textContent = HINTS.conicfocus;
+    }
   } else if (mode === 'midpoint') {
     /* 中点：点击线段/多边形边直接取其中点；或依次点击两个已有点取其中点（不新建点） */
     var mp0 = findPointNear(sx, sy);
@@ -1421,6 +1511,24 @@ function createRegularPolygon(opts) {
             tb = resolveRef(s.points[1], registry, i),
             tc = resolveRef(s.points[2], registry, i);
         el = createTriCenter(s.kind, ta, tb, tc, id, true);
+        break;
+      }
+      case 'coniccenter': {
+        if (s.conic === undefined || !s.kind)
+          throw new Error('第 ' + (i + 1) + ' 步：coniccenter 需要 conic（曲线名）, kind');
+        var ccEl = resolveRef(s.conic, registry, i);
+        if (!ccEl || !conicDefInfo(ccEl))
+          throw new Error('第 ' + (i + 1) + ' 步：coniccenter 的 conic 不是二次曲线');
+        el = createConicCenter(ccEl, s.kind, id, true);
+        break;
+      }
+      case 'conicfocus': {
+        if (s.conic === undefined || !s.kind)
+          throw new Error('第 ' + (i + 1) + ' 步：conicfocus 需要 conic（曲线名）, kind');
+        var cfEl = resolveRef(s.conic, registry, i);
+        if (!cfEl || !conicDefInfo(cfEl))
+          throw new Error('第 ' + (i + 1) + ' 步：conicfocus 的 conic 不是二次曲线');
+        el = createConicFocus(cfEl, s.kind, s.index || 0, id, true);
         break;
       }
       case 'perpseg': {
