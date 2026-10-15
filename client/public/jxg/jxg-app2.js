@@ -1826,6 +1826,18 @@ function currentRotAngle() {
   } catch (e) {}
   return 90;
 }
+/* 旋转工具原始角度输入：纯数字返回数值；表达式返回原始串（序列化保留，
+ * 旋转点随度量动态求值）；非法值回落 90。 */
+function currentRotAngleRaw() {
+  try {
+    var raw = String(document.getElementById('rotAngle').value).trim();
+    if (!raw) return 90;
+    if (/^-?\d*\.?\d+$/.test(raw)) return parseFloat(raw);
+    var v = evalMsrExpr(raw);
+    if (isFinite(v)) return raw;
+  } catch (e) {}
+  return 90;
+}
 /* 弦+角圆弧工具当前角度（工具栏输入框）：纯数字直接用，否则按数表达式求值。
  * 返回 { raw, num }：raw 为原始输入（序列化保留，表达式随度量动态求值），
  * num 为当前数值（非法时回落 60°）。 */
@@ -1843,16 +1855,22 @@ function currentArcChordAngle() {
   return { raw: '60', num: 60 };
 }
 
-/* 生成点 p 绕旋转中心联动旋转的点（固定约束点，中心或原点移动时自动跟随） */
-function makeRotatePoint(orig, center, angleDeg, name) {
-  var rad = (Number(angleDeg) || 0) * Math.PI / 180;
-  var cosA = Math.cos(rad), sinA = Math.sin(rad);
+/* 生成点 p 绕旋转中心联动旋转的点（固定约束点，中心或原点移动时自动跟随）。
+ * angleRaw 为数（固定角）或数表达式字符串（每次更新动态求值，随度量联动）。 */
+function makeRotatePoint(orig, center, angleRaw, name) {
+  var angFn = (typeof angleRaw === 'number')
+    ? function () { return angleRaw; }
+    : function () { try { return evalMsrExpr(String(angleRaw)); } catch (e) { return NaN; } };
   var el = board.create('point', [
     function () {
+      var rad = (Number(angFn()) || 0) * Math.PI / 180;
+      var cosA = Math.cos(rad), sinA = Math.sin(rad);
       var dx = orig.X() - center.X(), dy = orig.Y() - center.Y();
       return center.X() + dx * cosA - dy * sinA;
     },
     function () {
+      var rad = (Number(angFn()) || 0) * Math.PI / 180;
+      var cosA = Math.cos(rad), sinA = Math.sin(rad);
       var dx = orig.X() - center.X(), dy = orig.Y() - center.Y();
       return center.Y() + dx * sinA + dy * cosA;
     }
@@ -1860,7 +1878,7 @@ function makeRotatePoint(orig, center, angleDeg, name) {
   el._defKind = 'rotate';
   applyDrivenGray(el);
   el._depIds = [orig.id, center.id];
-  el._rotOf = orig.id; el._rotCenter = center.id; el._rotAngle = Number(angleDeg) || 0;
+  el._rotOf = orig.id; el._rotCenter = center.id; el._rotAngle = angleRaw;
   return el;
 }
 /* 生成点 p 沿向量 V 联动平移的点（固定从动点，向量两端移动时自动跟随） */
@@ -2046,13 +2064,14 @@ function doSymmetry() {
   var dilK = isDil ? currentDilRatio() : null;
   symDilK = dilK;
   var angle = isRot ? currentRotAngle() : (isDil && dilK ? dilK.num : 0);
+  var rotRaw = isRot ? currentRotAngleRaw() : 0;
   var count = 0, ptMap = {};
   function mpt(p) {
     if (ptMap[p.id]) return ptMap[p.id];
     /* 旋转中心 / 对称中心自身（含复合对象里以它为端点/圆心的定义点）：
      * 它的像就是它本身，直接复用原对象，不重复生成新点 */
     if (p.id === axis.id) { ptMap[p.id] = axis; return axis; }
-    var mp = isRot ? makeRotatePoint(p, axis, angle, nextId('P'))
+    var mp = isRot ? makeRotatePoint(p, axis, rotRaw, nextId('P'))
                    : isTrans ? makeTranslatePoint(p, axis, nextId('P'))
                              : isDil ? makeDilatePoint(p, axis, dilK.raw, nextId('P'))
                                      : makeMirrorPoint(p, axis, mtype, nextId('P'));

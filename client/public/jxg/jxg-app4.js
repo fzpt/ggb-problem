@@ -1693,15 +1693,23 @@ function createRegularPolygon(opts) {
         case 'rotate': {
           if (s.of === undefined || s.center === undefined || s.angle === undefined)
             throw new Error('第 ' + (i + 1) + ' 步：rotate 需要 of（原点）, center（旋转中心）, angle（角度，度）');
+          if (typeof s.angle !== 'number' && typeof s.angle !== 'string')
+            throw new Error('第 ' + (i + 1) + ' 步：rotate 的 angle 需要数值或数表达式字符串（角度，度）');
           var ro = resolveRef(s.of, registry, i), rc = resolveRef(s.center, registry, i);
-          var rad = (Number(s.angle) || 0) * Math.PI / 180;
-          var cosA = Math.cos(rad), sinA = Math.sin(rad);
+          /* 表达式角度：每次更新动态求值（引用度量变量时随度量联动） */
+          var rotAngFn = (typeof s.angle === 'number')
+            ? function () { return s.angle; }
+            : function () { try { return evalMsrExpr(String(s.angle)); } catch (e) { return NaN; } };
           el = board.create('point', [
             function () {
+              var rad = (Number(rotAngFn()) || 0) * Math.PI / 180;
+              var cosA = Math.cos(rad), sinA = Math.sin(rad);
               var dx = ro.X() - rc.X(), dy = ro.Y() - rc.Y();
               return rc.X() + dx * cosA - dy * sinA;
             },
             function () {
+              var rad = (Number(rotAngFn()) || 0) * Math.PI / 180;
+              var cosA = Math.cos(rad), sinA = Math.sin(rad);
               var dx = ro.X() - rc.X(), dy = ro.Y() - rc.Y();
               return rc.Y() + dx * sinA + dy * cosA;
             }
@@ -1709,7 +1717,16 @@ function createRegularPolygon(opts) {
           el._defKind = 'rotate';
           applyDrivenGray(el);
           el._depIds = [ro.id, rc.id];
-          el._rotOf = ro.id; el._rotCenter = rc.id; el._rotAngle = Number(s.angle) || 0;
+          /* 从表达式中提取已注册对象 id，作为闭包依赖（防循环约束检测/级联删除用） */
+          if (typeof s.angle === 'string') {
+            var _rRefs = [];
+            String(s.angle).replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (m2) {
+              if (registry[m2] && registry[m2].id && _rRefs.indexOf(registry[m2].id) < 0) _rRefs.push(registry[m2].id);
+              return m2;
+            });
+            _rRefs.forEach(function (rid) { if (el._depIds.indexOf(rid) < 0) el._depIds.push(rid); });
+          }
+          el._rotOf = ro.id; el._rotCenter = rc.id; el._rotAngle = s.angle;
           break;
         }
         case 'transpt': {
