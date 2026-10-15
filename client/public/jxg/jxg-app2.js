@@ -679,6 +679,8 @@ var HINTS = {
   ctsym_pick: '已选对称中心 — 点选要对称的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成镜像；Esc 退出。',
   rotate:  '当前工具：旋转 — 先点击一个点作为旋转中心（角度在工具栏右侧输入，逆时针为正）。',
   rotate_pick: '已选旋转中心 — 点选要旋转的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
+  translate:  '当前工具：平移 — 先点击一个向量（或线段，取其方向与长度）作为平移向量。',
+  translate_pick: '已选平移向量 — 点选要平移的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
   polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
   mlen:    '当前工具：长度度量 — 点击一条线段、圆、圆弧或多边形，生成长度变量（L1、L2…，可在表达式文本中引用）。',
@@ -1515,7 +1517,7 @@ function cancelSymMarquee() {
 /* 对称工具的提示行 */
 function updateSymHint() {
   var el = document.getElementById('hint');
-  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate')) return;
+  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate' && mode !== 'translate')) return;
   if (!symAxis) { el.textContent = HINTS[mode]; return; }
   el.textContent = HINTS[mode + '_pick'] + '（已选 ' + symPending.length + ' 个）';
 }
@@ -1858,6 +1860,19 @@ function makeRotatePoint(orig, center, angleDeg, name) {
   el._rotOf = orig.id; el._rotCenter = center.id; el._rotAngle = Number(angleDeg) || 0;
   return el;
 }
+/* 生成点 p 沿向量 V 联动平移的点（固定从动点，向量两端移动时自动跟随） */
+function makeTranslatePoint(p, V, name) {
+  var A = V.point1, B = V.point2;
+  var el = board.create('point', [
+    function () { return p.X() + (B.X() - A.X()); },
+    function () { return p.Y() + (B.Y() - A.Y()); }
+  ], { name: name, fixed: true });
+  el._defKind = 'transpt';
+  applyDrivenGray(el);
+  el._depIds = [p.id, V.id];
+  el._transOf = p.id; el._transVia = V.id;
+  return el;
+}
 
 /* 把单个对象 o 做镜像/旋转。mpt 为"取某点的像点（含去重）"的函数；
  * mtype: 'axial' | 'central' | 'rotate'。返回是否成功。 */
@@ -1912,8 +1927,8 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
       el = makeArcChord(cA, cB, fnA, rawA, nextId('a'));
     } else {
       if (pts.length < 3) return false;
-      /* 二点圆弧：轴/中心对称会反转方向，交换起终点保证弧段集合正确；旋转保持方向 */
-      if (mtype === 'rotate')
+      /* 二点圆弧：轴/中心对称会反转方向，交换起终点保证弧段集合正确；旋转/平移保持方向 */
+      if (mtype === 'rotate' || mtype === 'translate')
         el = board.create('arc', [mpt(pts[0]), mpt(pts[1]), mpt(pts[2])], { name: nextId('a') });
       else
         el = board.create('arc', [mpt(pts[0]), mpt(pts[2]), mpt(pts[1])], { name: nextId('a') });
@@ -1924,16 +1939,50 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
     if (verts.length < 3) return false;
     el = board.create('polygon', verts.map(mpt), { name: nextId('poly') });
     tagPolygonBorders(el);
+  } else if (et === 'arrow') {
+    /* 向量：像向量的方向由像点决定（平移方向不变，对称/旋转随之翻转） */
+    if (pts.length < 2) return false;
+    el = board.create('arrow', [mpt(pts[0]), mpt(pts[1])], { name: nextId('v') });
+    el._defKind = 'vector';
+  } else if ((dk === 'ellipse' || dk === 'hyperbola') && o._conicIds) {
+    /* 椭圆/双曲线：焦点与曲线上点取像后按同类型重建 */
+    var cf1 = mpt(board.objects[o._conicIds[0]]),
+        cf2 = mpt(board.objects[o._conicIds[1]]),
+        cp0 = mpt(board.objects[o._conicIds[2]]);
+    el = board.create(dk, [cf1, cf2, cp0], { name: nextId('k') });
+    el._defKind = dk;
+    el._conicIds = [cf1.id, cf2.id, cp0.id];
+  } else if (dk === 'parabola' && o._conicIds) {
+    /* 抛物线：焦点取像；准线本身也取像（成为独立的像对象）后作新准线 */
+    var foc2 = mpt(board.objects[o._conicIds[0]]);
+    var dir0 = board.objects[o._conicIds[1]];
+    var dirEl = (dir0 && (dir0.elType === 'segment' || dir0.elType === 'line'))
+      ? mirrorOneObject(dir0, mpt, mtype, axis, angle) : null;
+    if (!dirEl) return false;
+    el = board.create('parabola', [foc2, dirEl], { name: nextId('p') });
+    el._defKind = 'parabola';
+    el._conicIds = [foc2.id, dirEl.id];
+  } else if (dk === 'conic' && o._conicIds) {
+    /* 五点二次曲线：五个点取像后重建（类型随像点自动判断） */
+    var g5 = o._conicIds.map(function (pid) { return mpt(board.objects[pid]); });
+    el = board.create('conic', g5, { name: nextId('k') });
+    el._defKind = 'conic';
+    el._conicIds = g5.map(function (p) { return p.id; });
   } else {
     return false;
   }
   if (!el) return false;
-  el._mirrorOf = o.id;
-  el._axisId = axis.id;
-  el._mtype = mtype;
-  if (mtype === 'rotate') el._rotProdAngle = Number(angle) || 0;
+  if (mtype === 'translate') {
+    el._transOf = o.id;
+    el._transVia = axis.id;
+  } else {
+    el._mirrorOf = o.id;
+    el._axisId = axis.id;
+    el._mtype = mtype;
+    if (mtype === 'rotate') el._rotProdAngle = Number(angle) || 0;
+  }
   trackId(el.id);
-  return true;
+  return el;
 }
 
 /* 双击空白处：把待对称/旋转对象一次全部生成（只记一条撤销） */
@@ -1944,7 +1993,8 @@ function doSymmetry() {
   }
   var axis = symAxis;
   var isRot = (mode === 'rotate');
-  var mtype = isRot ? 'rotate' : ((mode === 'ctsym') ? 'central' : 'axial');
+  var isTrans = (mode === 'translate');
+  var mtype = isTrans ? 'translate' : (isRot ? 'rotate' : ((mode === 'ctsym') ? 'central' : 'axial'));
   var angle = isRot ? currentRotAngle() : 0;
   var count = 0, ptMap = {};
   function mpt(p) {
@@ -1953,7 +2003,8 @@ function doSymmetry() {
      * 它的像就是它本身，直接复用原对象，不重复生成新点 */
     if (p.id === axis.id) { ptMap[p.id] = axis; return axis; }
     var mp = isRot ? makeRotatePoint(p, axis, angle, nextId('P'))
-                   : makeMirrorPoint(p, axis, mtype, nextId('P'));
+                   : isTrans ? makeTranslatePoint(p, axis, nextId('P'))
+                             : makeMirrorPoint(p, axis, mtype, nextId('P'));
     trackId(mp.id);
     ptMap[p.id] = mp;
     return mp;
@@ -1974,7 +2025,7 @@ function doSymmetry() {
   if (board.objects[axis.id] === axis) flashOn(axis);
   refreshObjectList();
   updateSymHint();
-  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : '对称') + '图形，可继续选择下一批；按 Esc 退出工具。', true);
+  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : (isTrans ? '平移' : '对称')) + '图形，可继续选择下一批；按 Esc 退出工具。', true);
 }
 
 /* 对称工具的按下处理：先选轴/中心 → 点选多选（再点取消）/ 框选 → 双击空白处生成 */
@@ -1991,6 +2042,12 @@ function handleSymDown(x, y, sx, sy) {
       symAxis = ax;
       flashOn(ax);
       setStatus('已选对称轴 ' + ax.name + '，点选/框选要对称的图形，双击空白处生成镜像。', true);
+    } else if (mode === 'translate') {
+      var vv = findVectorAt(sx, sy);
+      if (!vv) { setStatus('请点击一个向量（或线段，取其方向与长度）作为平移向量。', false); return; }
+      symAxis = vv;
+      flashOn(vv);
+      setStatus('已选平移向量 ' + vv.name + '，点选/框选要平移的图形，双击空白处生成。', true);
     } else {
       var cp = findPointNear(sx, sy);
       if (!cp) { setStatus(mode === 'rotate' ? '请点击一个点作为旋转中心。' : '请点击一个点作为对称中心。', false); return; }
@@ -2019,6 +2076,17 @@ function findLinearAt(sx, sy) {
     if (d <= bestD) { best = o; bestD = d; }
   }
   return best;
+}
+/* 平移工具：找屏幕坐标 (sx, sy) 处的向量（或线段，取其方向与长度作平移向量） */
+function findVectorAt(sx, sy) {
+  for (var i = createdIds.length - 1; i >= 0; i--) {
+    var o = board.objects[createdIds[i]];
+    if (!o) continue;
+    if (o.elType !== 'arrow' && o.elType !== 'segment') continue;
+    if (o._defKind === 'perpline' || o._polyBorderOf) continue;
+    if (o.hasPoint && o.hasPoint(sx, sy)) return o;
+  }
+  return null;
 }
 /* 过点平行线的隐藏方向点：Q = P + (B - A)，随过点 P 与参照线 AB 联动；
  * 不进对象列表、不序列化，随平行对象重建 */

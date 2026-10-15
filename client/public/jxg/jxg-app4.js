@@ -209,7 +209,7 @@ board.on('down', function (e) {
   }
 
   /* 对称/旋转工具：先选对称轴/对称中心/旋转中心，再多选图形，双击空白处生成 */
-  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate') {
+  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate' || mode === 'translate') {
     handleSymDown(x, y, sx, sy);
     return;
   }
@@ -1710,6 +1710,22 @@ function createRegularPolygon(opts) {
           applyDrivenGray(el);
           el._depIds = [ro.id, rc.id];
           el._rotOf = ro.id; el._rotCenter = rc.id; el._rotAngle = Number(s.angle) || 0;
+          break;
+        }
+        case 'transpt': {
+          if (s.of === undefined || s.via === undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：transpt 需要 of（原点）, via（向量/线段）');
+          var tp = resolveRef(s.of, registry, i), tv = resolveRef(s.via, registry, i);
+          if (!tv.point1 || !tv.point2)
+            throw new Error('第 ' + (i + 1) + ' 步：transpt 的 via 必须是向量或线段');
+          el = board.create('point', [
+            function () { return tp.X() + (tv.point2.X() - tv.point1.X()); },
+            function () { return tp.Y() + (tv.point2.Y() - tv.point1.Y()); }
+          ], { name: id, fixed: true });
+          el._defKind = 'transpt';
+          applyDrivenGray(el);
+          el._depIds = [tp.id, tv.id];
+          el._transOf = tp.id; el._transVia = tv.id;
           break;
         }
         case 'dilate': {

@@ -535,6 +535,9 @@
         <button class="tool" data-mode="rotate" title="旋转：先点旋转中心，输入角度，再多选图形，双击空白处生成旋转图形" aria-label="旋转">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M17.6 2.8v3.6h-3.6"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
+        <button class="tool" data-mode="translate" title="平移：先点一个向量（或线段，取其方向与长度）作为平移向量，再多选图形，双击空白处生成平移图形" aria-label="平移">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12h9"/><path d="M10 8.5l4.5 3.5-4.5 3.5"/><path d="M15.5 16.5l3-3 3 3v5.5h-6z"/></svg>
+        </button>
         <span id="rotAngleWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">角度<input id="rotAngle" type="text" inputmode="decimal" value="90" title="旋转角度（度，逆时针为正）；支持数表达式：度量变量（L1、a1…）与函数（如 Distance(A,B)、Length(seg1) 等），非法时回落 90°" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
         <span class="toolsep"></span>
         <button class="tool" data-mode="ellipse" title="椭圆：依次点击两个焦点，再点击椭圆上一点" aria-label="椭圆">

@@ -492,6 +492,8 @@ function objectToStepRaw(o) {
   }
     if (dk === 'mirrorpt')
       return { type: 'mirrorpt', id: nm, of: oname(o._mirrorIds[0]), axis: oname(o._mirrorIds[1]), t: o._mtype };
+    if (dk === 'transpt')
+      return { type: 'transpt', id: nm, of: oname(o._transOf), via: oname(o._transVia) };
     if (dk === 'rotate')
       return { type: 'rotate', id: nm, of: oname(o._rotOf), center: oname(o._rotCenter), angle: o._rotAngle };
     if (dk === 'dilate')
@@ -716,6 +718,10 @@ function describeDef(o) {
     d += '〔关于' + (mx ? (mx.elementClass === JXG.OBJECT_CLASS_POINT ? '点' : '') + mx.name : '?') +
          (o._mtype === 'rotate' ? '旋转 ' + (o._rotProdAngle || 0) + '°' : (o._mtype === 'central' ? '中心对称' : '轴对称')) + '〕';
   }
+  if (o._transOf) {
+    var tv = o._transVia && board.objects[o._transVia];
+    d += '〔沿向量 ' + (tv ? tv.name : '?') + ' 平移〕';
+  }
   return d;
 }
 function describeDefRaw(o) {
@@ -744,6 +750,9 @@ function describeDefRaw(o) {
     return '单位向量 ' + nm + '：与 ' + oname(o._vOf) + ' 同向，长度 1';
   if (o._defKind === 'vpoint')
     return '向量点 ' + nm + '：' + oname(o._vOf) + ' + ' + ppNum(o._vK) + '×' + oname(o._vBy) +
+           '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
+  if (o._defKind === 'transpt')
+    return '平移点 ' + nm + '：' + oname(o._transOf) + ' 沿向量 ' + oname(o._transVia) +
            '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
   if (o._defKind === 'mirrorpt') {
     var mo = o._mirrorIds && board.objects[o._mirrorIds[0]];
