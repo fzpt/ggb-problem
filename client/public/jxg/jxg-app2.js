@@ -655,6 +655,7 @@ var HINTS = {
   circle3: '当前工具：三点圆 — 依次点击三个不共线的点（可复用已有点/交点），生成三点确定的圆。',
   arc:     '当前工具：圆弧 — 先点圆心，再依次点弧的起点和终点（可复用已有点/交点）。',
   arc3:    '当前工具：三点圆弧 — 依次点击三个不共线的点（可复用已有点/交点），生成三点外接圆上依次经过这三点的圆弧。',
+  arcchord: '当前工具：弦+角圆弧 — 圆周角在工具栏右侧输入（支持数表达式，如 a1、2*a1+10，引用度量变量时圆弧随度量动态变化）；依次点击弦的两个端点（可复用已有点/交点），生成该弦所对圆周角为指定角度的圆弧（圆心自动计算，端点或角度变化时联动）。',
   ellipse: '当前工具：椭圆 — 依次点击两个焦点，再点击椭圆上一点（可复用已有点/交点），生成以这两点为焦点的椭圆。',
   hyperbola: '当前工具：双曲线 — 依次点击两个焦点，再点击双曲线上一点（可复用已有点/交点），生成以这两点为焦点的双曲线。',
   parabola: '当前工具：抛物线 — 先点击焦点（可复用已有点/交点），再点击一条直线或线段作准线，生成抛物线。',
@@ -1820,6 +1821,22 @@ function currentRotAngle() {
   } catch (e) {}
   return 90;
 }
+/* 弦+角圆弧工具当前角度（工具栏输入框）：纯数字直接用，否则按数表达式求值。
+ * 返回 { raw, num }：raw 为原始输入（序列化保留，表达式随度量动态求值），
+ * num 为当前数值（非法时回落 60°）。 */
+function currentArcChordAngle() {
+  try {
+    var raw = String(document.getElementById('arcChordAngle').value).trim();
+    if (!raw) return { raw: '60', num: 60 };
+    if (/^-?\d*\.?\d+$/.test(raw)) {
+      var n = parseFloat(raw);
+      if (isFinite(n)) return { raw: n, num: n };
+    }
+    var v = evalMsrExpr(raw);
+    if (isFinite(v)) return { raw: raw, num: v };
+  } catch (e) {}
+  return { raw: '60', num: 60 };
+}
 
 /* 生成点 p 绕旋转中心联动旋转的点（固定约束点，中心或原点移动时自动跟随） */
 function makeRotatePoint(orig, center, angleDeg, name) {
@@ -1885,6 +1902,14 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
     if (dk === 'arc3') {
       var a3 = o._arc3pts.map(function (pid) { return mpt(board.objects[pid]); });
       el = createArc3(a3[0], a3[1], a3[2], nextId('a'));
+    } else if (dk === 'arcchord') {
+      /* 弦+角圆弧：端点取像后按原角度（数/表达式原样保留）重建 */
+      var cA = mpt(board.objects[o._arcChordPts[0]]), cB = mpt(board.objects[o._arcChordPts[1]]);
+      var rawA = o._arcAngle;
+      var fnA = (typeof rawA === 'number')
+        ? function () { return rawA; }
+        : function () { try { return evalMsrExpr(String(rawA)); } catch (e) { return NaN; } };
+      el = makeArcChord(cA, cB, fnA, rawA, nextId('a'));
     } else {
       if (pts.length < 3) return false;
       /* 二点圆弧：轴/中心对称会反转方向，交换起终点保证弧段集合正确；旋转保持方向 */

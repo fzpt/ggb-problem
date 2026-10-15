@@ -471,6 +471,10 @@
         <button class="tool" data-mode="arc3" title="三点圆弧：依次点三个点，生成三点外接圆上依次经过这三点的圆弧" aria-label="三点圆弧">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.4 10.5A8 8 0 0 1 19.6 10.5"/><circle cx="4.4" cy="10.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="5" r="1.7" fill="currentColor" stroke="none"/><circle cx="19.6" cy="10.5" r="1.7" fill="currentColor" stroke="none"/></svg>
         </button>
+        <button class="tool" data-mode="arcchord" title="弦+角圆弧：圆周角在工具栏右侧输入（支持数表达式，如 a1、2*a1+10）；依次点击弦的两个端点，生成该弦所对圆周角为指定角度的圆弧" aria-label="弦角圆弧">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="16" x2="20" y2="16"/><path d="M5.5 16A6.5 6.5 0 0 1 18.5 16"/><circle cx="4" cy="16" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="16" r="1.7" fill="currentColor" stroke="none"/><path d="M12 3.5v3M10.8 5l1.2 1.5L14 5" stroke-width="1.4"/></svg>
+        </button>
+        <span id="arcChordWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">圆周角<input id="arcChordAngle" type="text" inputmode="decimal" value="60" title="弦所对的圆周角（度，0<a<180）；支持数表达式：度量变量（L1、a1…）与函数（如 a1/2、Distance(A,B) 等），引用度量时圆弧随度量动态变化" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
         <button class="tool" data-mode="intersect" title="交点：依次点击两条直线/线段/圆，生成联动交点" aria-label="交点">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4.5" y1="19.5" x2="19.5" y2="4.5"/><line x1="4.5" y1="4.5" x2="19.5" y2="19.5"/><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/></svg>
         </button>

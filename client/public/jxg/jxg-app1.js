@@ -1413,6 +1413,7 @@ function stepToFormulaText(s) {
       return id + ' = Circle(' + s.center + ', ' + s.through + ')';
     case 'arc': return id + ' = Arc(' + s.center + ', ' + s.p1 + ', ' + s.p2 + ')';
     case 'arc3': return id + ' = 三点圆弧(' + s.through3.join(', ') + ')';
+    case 'arcchord': return id + ' = 弦角圆弧(' + s.p1 + ', ' + s.p2 + ', ' + s.angle + '°)';
     case 'ellipse': return id + ' = Ellipse(' + s.f1 + ', ' + s.f2 + ', ' + s.p + ')';
     case 'hyperbola': return id + ' = Hyperbola(' + s.f1 + ', ' + s.f2 + ', ' + s.p + ')';
     case 'parabola': return id + ' = Parabola(' + s.focus + ', ' + s.directrix + ')';

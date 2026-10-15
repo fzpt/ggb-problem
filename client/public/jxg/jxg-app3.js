@@ -111,6 +111,7 @@ function setMode(m) {
   if (keepSel) { try { syncListSelection(); } catch (eKS) {} } else { clearSelection(); }
   document.getElementById('hint').textContent = HINTS[m];
   try { document.getElementById('rotAngleWrap').style.display = (m === 'rotate') ? 'inline-flex' : 'none'; } catch (e) {}
+  try { document.getElementById('arcChordWrap').style.display = (m === 'arcchord') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('ngonWrap').style.display = (m === 'ngon') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('msrExprWrap').style.display = (m === 'mtext') ? 'inline-flex' : 'none'; } catch (e) {}
   /* 控件创建改走弹出对话框（仿 GeoGebra），工具栏不再提供输入框；切工具时关掉未完成的弹框 */
@@ -586,6 +587,9 @@ function objectToStepRaw(o) {
   if (dk === 'arc3')
     return { type: 'arc3', id: nm,
              through3: [oname(o._arc3pts[0]), oname(o._arc3pts[1]), oname(o._arc3pts[2])] };
+  if (dk === 'arcchord')
+    return { type: 'arcchord', id: nm,
+             p1: oname(o._arcChordPts[0]), p2: oname(o._arcChordPts[1]), angle: o._arcAngle };
   if (o.elType === 'arc' || dk === 'arc')
     return { type: 'arc', id: nm, center: oname(o.parents[0]), p1: oname(o.parents[1]), p2: oname(o.parents[2]) };
   if (o.elType === 'polygon') {
@@ -813,6 +817,9 @@ function describeDefRaw(o) {
   }
   if (o._defKind === 'arc3')
     return '三点圆弧 ' + nm + '：依次过 ' + oname(o._arc3pts[0]) + '、' + oname(o._arc3pts[1]) + '、' + oname(o._arc3pts[2]);
+  if (o._defKind === 'arcchord')
+    return '弦角圆弧 ' + nm + '：弦 ' + oname(o._arcChordPts[0]) + '–' + oname(o._arcChordPts[1]) +
+           '，圆周角 ' + (typeof o._arcAngle === 'string' ? o._arcAngle : fmtR(o._arcAngle)) + '°';
   if (o._defKind === 'arc' || o.elType === 'arc')
     return '圆弧 ' + nm + '：圆心 ' + pname(o, 0) + '，从 ' + pname(o, 1) + ' 到 ' + pname(o, 2);
   switch (o.elType) {
@@ -1177,6 +1184,11 @@ function renameRefsInStep(s, oldN, newN) {
   if (typeof c.expr === 'string') {
     var re2 = new RegExp('(^|[^A-Za-z0-9_])' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
     c.expr = c.expr.replace(re2, '$1' + newN);
+  }
+  /* 弦+角圆弧（arcchord 的 angle）为表达式字符串时同样按标识符引用 */
+  if (typeof c.angle === 'string') {
+    var reA = new RegExp('(^|[^A-Za-z0-9_])' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
+    c.angle = c.angle.replace(reA, '$1' + newN);
   }
   if (Array.isArray(c.through3)) c.through3 = c.through3.map(function (v) { return v === oldN ? newN : v; });
   if (Array.isArray(c.points)) c.points = c.points.map(function (v) { return v === oldN ? newN : v; });
@@ -1772,6 +1784,48 @@ function createArc3(pA, pB, pC, name) {
   arcEl._arc3pts = [pA.id, pB.id, pC.id];
   arcEl._arc3centerId = O.id;
   O._arc3arcId = arcEl.id;
+  return arcEl;
+}
+/* 弦+圆周角圆弧：p1/p2 为弦两端点，angleFn 每次更新动态求值（度），
+ * 返回该弦所对圆周角为 α 的圆弧（圆心 = 弦中点 + r·cosα·左法向，
+ * r = 弦长/(2·sinα)）。angleRaw 为序列化保留的原始值（数或表达式字符串）。
+ * 圆心为隐藏辅助点（不进对象列表、不序列化，随圆弧重建）。
+ * sinα 过小（→0/180°）时钳制，避免半径发散。 */
+function makeArcChord(pA, pB, angleFn, angleRaw, name) {
+  function centerXY() {
+    var mx = (pA.X() + pB.X()) / 2, my = (pA.Y() + pB.Y()) / 2;
+    var dx = pB.X() - pA.X(), dy = pB.Y() - pA.Y();
+    var len = Math.hypot(dx, dy);
+    if (len < 1e-9) return [mx, my];
+    var a;
+    try { a = angleFn(); } catch (e) { a = NaN; }
+    if (!isFinite(a)) return [mx, my];
+    var rad = a * Math.PI / 180;
+    var sinA = Math.sin(rad);
+    if (Math.abs(sinA) < 0.03) sinA = sinA < 0 ? -0.03 : 0.03;
+    var r = len / (2 * sinA);
+    var h = r * Math.cos(rad);
+    /* 有向弦 pA→pB 的左法向 (-dy, dx)/len：α>0 时圆心在左侧，
+     * JSXGraph 弧从 p1 逆时针扫到 p2，恰好为圆周角 α 所对的弧 */
+    return [mx + h * (-dy / len), my + h * (dx / len)];
+  }
+  var O = board.create('point', [
+    function () { return centerXY()[0]; },
+    function () { return centerXY()[1]; }
+  ], { name: '', visible: false, fixed: true, withLabel: false });
+  O._defKind = 'arcchordcenter';
+  var arcEl = null;
+  try {
+    arcEl = board.create('arc', [O, pA, pB], { name: name });
+  } catch (err) {
+    try { board.removeObject(O); } catch (e2) {}
+    throw err;
+  }
+  arcEl._defKind = 'arcchord';
+  arcEl._arcChordPts = [pA.id, pB.id];
+  arcEl._arcChordCenterId = O.id;
+  arcEl._arcAngle = angleRaw;
+  O._arcChordArcId = arcEl.id;
   return arcEl;
 }
 

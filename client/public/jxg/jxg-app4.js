@@ -895,6 +895,51 @@ board.on('down', function (e) {
       document.getElementById('hint').textContent =
         '已选第 ' + pendingPts.length + ' 点' + reuseLabel(r3a) + '（第 2 点决定圆弧走哪一侧），还需 ' + (3 - pendingPts.length) + ' 点。';
     }
+  } else if (mode === 'arcchord') {
+    /* 弦+角圆弧：圆周角在工具栏输入（支持表达式）；依次点击弦的两个端点 */
+    var rca = pickOrCreatePoint(x, y, sx, sy);
+    if (rca.reused) pendingReused = true;
+    if (rca.isIntersection) pendingInter = true;
+    pendingPts.push(rca.point);
+    if (pendingPts.length === 2) {
+      var ch1 = pendingPts[0], ch2 = pendingPts[1];
+      pendingPts = [];
+      if (ch1.id === ch2.id) {
+        setStatus('弦的两个端点不能是同一个点，请重新选择。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.arcchord;
+        return;
+      }
+      var ca = currentArcChordAngle();
+      if (!(ca.num > 0 && ca.num < 180)) {
+        setStatus('圆周角需要在 0～180 度之间（当前：' + ca.num + '），请在工具栏修改。', false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.arcchord;
+        return;
+      }
+      var achEl;
+      try {
+        var achFn = (typeof ca.raw === 'number')
+          ? function () { return ca.raw; }
+          : function () { try { return evalMsrExpr(String(ca.raw)); } catch (e) { return NaN; } };
+        achEl = makeArcChord(ch1, ch2, achFn, ca.raw, nextId('a'));
+      } catch (err) {
+        setStatus('无法创建弦角圆弧：' + err.message, false);
+        pendingReused = false; pendingInter = false; clearFlashes();
+        document.getElementById('hint').textContent = HINTS.arcchord;
+        return;
+      }
+      trackId(achEl.id);
+      var noteCA = pendingInter ? '（含联动交点）' : (pendingReused ? '（复用了已有点）' : '');
+      pendingReused = false; pendingInter = false;
+      clearFlashes();
+      setStatus('已创建弦角圆弧' + noteCA + '：弦 ' + (ch1.name || '?') + '–' + (ch2.name || '?') +
+                '，圆周角 ' + (typeof ca.raw === 'string' ? ca.raw : ca.num) + '°。', true);
+      document.getElementById('hint').textContent = HINTS.arcchord;
+    } else {
+      document.getElementById('hint').textContent =
+        '已选弦端点 ' + rca.point.name + reuseLabel(rca) + '，再点击另一个端点。';
+    }
   } else if (mode === 'polygon') {
     /* 双击结束的第二次按下只作为“结束”，不得紧接着以同一点开新多边形 */
     if (lastPolyFinishMs && nowMs - lastPolyFinishMs < 450 &&
@@ -966,6 +1011,8 @@ function deleteObjects(rootIds) {
   Object.keys(doomed).forEach(function (id) {
     var ac = board.objects[id];
     if (ac && ac._defKind === 'arc3' && ac._arc3centerId) doomed[ac._arc3centerId] = true;
+    /* 弦+角圆弧被删时，其隐藏圆心一并清掉（圆心未登记在 createdIds 里） */
+    if (ac && ac._defKind === 'arcchord' && ac._arcChordCenterId) doomed[ac._arcChordCenterId] = true;
     /* 过点平行对象被删时，其附属对象一并清掉：
      * _endId 远端端点（已登记）、_lineId 隐藏约束线、_helpId 隐藏方向点（均未登记） */
     if (ac && ac._endId) doomed[ac._endId] = true;
@@ -1392,6 +1439,31 @@ function createRegularPolygon(opts) {
         if (triArea(tA, tB, tC) < 1e-9)
           throw new Error('第 ' + (i + 1) + ' 步：arc3 的三点共线，无法确定圆弧');
         el = createArc3(tA, tB, tC, id);
+        break;
+      }
+      case 'arcchord': {
+        if (s.p1 === undefined || s.p2 === undefined)
+          throw new Error('第 ' + (i + 1) + ' 步：arcchord 需要 p1, p2（弦两端点）');
+        if (typeof s.angle !== 'number' && typeof s.angle !== 'string')
+          throw new Error('第 ' + (i + 1) + ' 步：arcchord 的 angle 需要数值或表达式字符串（圆周角，度）');
+        var cA = resolveRef(s.p1, registry, i), cB = resolveRef(s.p2, registry, i);
+        if (cA.id === cB.id)
+          throw new Error('第 ' + (i + 1) + ' 步：arcchord 的 p1/p2 不能是同一个点');
+        /* 表达式角度：每次更新动态求值（引用度量变量时随度量联动） */
+        var chAngFn = (typeof s.angle === 'number')
+          ? function () { return s.angle; }
+          : function () { try { return evalMsrExpr(String(s.angle)); } catch (e) { return NaN; } };
+        el = makeArcChord(cA, cB, chAngFn, s.angle, id);
+        el._depIds = [cA.id, cB.id];
+        /* 从表达式中提取已注册对象 id，作为闭包依赖（防循环约束检测/级联删除用） */
+        if (typeof s.angle === 'string') {
+          var _chRefs = [];
+          String(s.angle).replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (m) {
+            if (registry[m] && registry[m].id && _chRefs.indexOf(registry[m].id) < 0) _chRefs.push(registry[m].id);
+            return m;
+          });
+          _chRefs.forEach(function (rid) { if (el._depIds.indexOf(rid) < 0) el._depIds.push(rid); });
+        }
         break;
       }
       case 'ellipse':
