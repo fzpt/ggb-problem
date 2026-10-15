@@ -209,7 +209,7 @@ board.on('down', function (e) {
   }
 
   /* 对称/旋转工具：先选对称轴/对称中心/旋转中心，再多选图形，双击空白处生成 */
-  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate' || mode === 'translate' || mode === 'dilate') {
+  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate' || mode === 'translate' || mode === 'dilate' || mode === 'invert') {
     handleSymDown(x, y, sx, sy);
     return;
   }
@@ -1772,6 +1772,34 @@ function createRegularPolygon(opts) {
             _dRefs.forEach(function (rid) { if (el._depIds.indexOf(rid) < 0) el._depIds.push(rid); });
           }
           el._dilOf = dO.id; el._dilCenter = dC.id; el._dilRatio = s.ratio;
+          break;
+        }
+        case 'invpt': {
+          if (s.of === undefined || s.circle === undefined)
+            throw new Error('第 ' + (i + 1) + ' 步：invpt 需要 of（原点）, circle（反演圆）');
+          var iP = resolveRef(s.of, registry, i), iC = resolveRef(s.circle, registry, i);
+          if (!iC.center) throw new Error('第 ' + (i + 1) + ' 步：invpt 的 circle 必须是圆');
+          var iO = iC.center;
+          el = board.create('point', [
+            function () {
+              var dx = iP.X() - iO.X(), dy = iP.Y() - iO.Y();
+              var d2 = dx * dx + dy * dy;
+              if (d2 < 1e-12) return iO.X();
+              var k = iC.Radius() * iC.Radius() / d2;
+              return iO.X() + dx * k;
+            },
+            function () {
+              var dx = iP.X() - iO.X(), dy = iP.Y() - iO.Y();
+              var d2 = dx * dx + dy * dy;
+              if (d2 < 1e-12) return iO.Y();
+              var k = iC.Radius() * iC.Radius() / d2;
+              return iO.Y() + dy * k;
+            }
+          ], { name: id, fixed: true });
+          el._defKind = 'invpt';
+          applyDrivenGray(el);
+          el._depIds = [iP.id, iC.id];
+          el._invOf = iP.id; el._invCircle = iC.id;
           break;
         }
         case 'exprpoint': {

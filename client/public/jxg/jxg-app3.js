@@ -499,6 +499,8 @@ function objectToStepRaw(o) {
       return { type: 'rotate', id: nm, of: oname(o._rotOf), center: oname(o._rotCenter), angle: o._rotAngle };
     if (dk === 'dilate')
       return { type: 'dilate', id: nm, of: oname(o._dilOf), center: oname(o._dilCenter), ratio: o._dilRatio };
+  if (dk === 'invpt')
+    return { type: 'invpt', id: nm, of: oname(o._invOf), circle: oname(o._invCircle) };
     if (dk === 'exprpoint')
       return { type: 'exprpoint', id: nm, x: o._exprX, y: o._exprY, def: o._defRaw };
     if (dk === 'sidepick')
@@ -717,10 +719,11 @@ function describeDef(o) {
   var d = describeDefRaw(o);
   if (o._mirrorOf) {
     var mx = o._axisId && board.objects[o._axisId];
-    d += '〔关于' + (mx ? (mx.elementClass === JXG.OBJECT_CLASS_POINT ? '点' : '') + mx.name : '?') +
-         (o._mtype === 'rotate' ? '旋转 ' + (o._rotProdAngle || 0) + '°'
-          : (o._mtype === 'dilate' ? '位似'
-          : (o._mtype === 'central' ? '中心对称' : '轴对称'))) + '〕';
+    var mword = o._mtype === 'rotate' ? '旋转 ' + (o._rotProdAngle || 0) + '°'
+              : (o._mtype === 'dilate' ? '位似'
+              : (o._mtype === 'invert' ? '反演'
+              : (o._mtype === 'central' ? '中心对称' : '轴对称')));
+    d += '〔关于' + (mx ? (mx.elementClass === JXG.OBJECT_CLASS_POINT ? '点' : '') + mx.name : '?') + mword + '〕';
   }
   if (o._transOf) {
     var tv = o._transVia && board.objects[o._transVia];
@@ -761,6 +764,9 @@ function describeDefRaw(o) {
   if (o._defKind === 'dilate')
     return '位似点 ' + nm + '：' + oname(o._dilOf) + ' 以 ' + oname(o._dilCenter) +
            ' 为中心，比 ' + (typeof o._dilRatio === 'string' ? o._dilRatio : ppNum(o._dilRatio)) +
+           '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
+  if (o._defKind === 'invpt')
+    return '反演点 ' + nm + '：' + oname(o._invOf) + ' 关于圆 ' + oname(o._invCircle) +
            '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
   if (o._defKind === 'mirrorpt') {
     var mo = o._mirrorIds && board.objects[o._mirrorIds[0]];

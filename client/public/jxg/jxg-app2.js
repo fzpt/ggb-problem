@@ -684,6 +684,8 @@ var HINTS = {
   translate_pick: '已选平移向量 — 点选要平移的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   dilate:  '当前工具：位似 — 先点击一个点作为位似中心（比例 k 在工具栏右侧输入，支持数表达式，可为负）。',
   dilate_pick: '已选位似中心 — 点选要位似的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
+  invert:  '当前工具：反演 — 先点击一个圆作为反演圆。',
+  invert_pick: '已选反演圆 — 点选要做反演的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
   polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
   mlen:    '当前工具：长度度量 — 点击一条线段、圆、圆弧或多边形，生成长度变量（L1、L2…，可在表达式文本中引用）。',
@@ -1520,7 +1522,7 @@ function cancelSymMarquee() {
 /* 对称工具的提示行 */
 function updateSymHint() {
   var el = document.getElementById('hint');
-  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate' && mode !== 'translate' && mode !== 'dilate')) return;
+  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate' && mode !== 'translate' && mode !== 'dilate' && mode !== 'invert')) return;
   if (!symAxis) { el.textContent = HINTS[mode]; return; }
   el.textContent = HINTS[mode + '_pick'] + '（已选 ' + symPending.length + ' 个）';
 }
@@ -1925,6 +1927,32 @@ function makeDilatePoint(orig, center, kRaw, name) {
   el._dilOf = orig.id; el._dilCenter = center.id; el._dilRatio = kRaw;
   return el;
 }
+/* 生成点 p 关于圆 circle 的反演点（固定从动点，OP·OP' = r²）；
+ * p 与圆心重合时退化钉在圆心 */
+function makeInvertPoint(p, circle, name) {
+  var O = circle.center;
+  var el = board.create('point', [
+    function () {
+      var dx = p.X() - O.X(), dy = p.Y() - O.Y();
+      var d2 = dx * dx + dy * dy;
+      if (d2 < 1e-12) return O.X();
+      var k = circle.Radius() * circle.Radius() / d2;
+      return O.X() + dx * k;
+    },
+    function () {
+      var dx = p.X() - O.X(), dy = p.Y() - O.Y();
+      var d2 = dx * dx + dy * dy;
+      if (d2 < 1e-12) return O.Y();
+      var k = circle.Radius() * circle.Radius() / d2;
+      return O.Y() + dy * k;
+    }
+  ], { name: name, fixed: true });
+  el._defKind = 'invpt';
+  applyDrivenGray(el);
+  el._depIds = [p.id, circle.id];
+  el._invOf = p.id; el._invCircle = circle.id;
+  return el;
+}
 
 /* 把单个对象 o 做镜像/旋转/平移/位似。mpt 为"取某点的像点（含去重）"的函数；
  * mtype: 'axial' | 'central' | 'rotate' | 'translate' | 'dilate'。返回是否成功。 */
@@ -1933,7 +1961,10 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) { mpt(o); return true; }
   var el = null, pts = symBasePoints(o);
   var dk = o._defKind, et = o.elType;
-  if (dk === 'bisector' && o._bisIds && et === 'line') {
+  if (mtype === 'invert') {
+    /* 反演：直线/圆等有特殊像（圆↔直线），走独立分支 */
+    el = invertProduct(o, mpt, axis);
+  } else if (dk === 'bisector' && o._bisIds && et === 'line') {
     /* 角平分线的镜像仍是角平分线：对三个定义点分别取镜像后重建 */
     el = createBisector(mpt(board.objects[o._bisIds[0]]),
                         mpt(board.objects[o._bisIds[1]]),
@@ -2060,7 +2091,8 @@ function doSymmetry() {
   var isRot = (mode === 'rotate');
   var isTrans = (mode === 'translate');
   var isDil = (mode === 'dilate');
-  var mtype = isTrans ? 'translate' : (isRot ? 'rotate' : (isDil ? 'dilate' : ((mode === 'ctsym') ? 'central' : 'axial')));
+  var isInv = (mode === 'invert');
+  var mtype = isTrans ? 'translate' : (isRot ? 'rotate' : (isDil ? 'dilate' : (isInv ? 'invert' : ((mode === 'ctsym') ? 'central' : 'axial'))));
   var dilK = isDil ? currentDilRatio() : null;
   symDilK = dilK;
   var angle = isRot ? currentRotAngle() : (isDil && dilK ? dilK.num : 0);
@@ -2074,7 +2106,8 @@ function doSymmetry() {
     var mp = isRot ? makeRotatePoint(p, axis, rotRaw, nextId('P'))
                    : isTrans ? makeTranslatePoint(p, axis, nextId('P'))
                              : isDil ? makeDilatePoint(p, axis, dilK.raw, nextId('P'))
-                                     : makeMirrorPoint(p, axis, mtype, nextId('P'));
+                                     : isInv ? makeInvertPoint(p, axis, nextId('P'))
+                                             : makeMirrorPoint(p, axis, mtype, nextId('P'));
     trackId(mp.id);
     ptMap[p.id] = mp;
     return mp;
@@ -2095,7 +2128,7 @@ function doSymmetry() {
   if (board.objects[axis.id] === axis) flashOn(axis);
   refreshObjectList();
   updateSymHint();
-  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : (isTrans ? '平移' : (isDil ? '位似' : '对称'))) + '图形，可继续选择下一批；按 Esc 退出工具。', true);
+  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : (isTrans ? '平移' : (isDil ? '位似' : (isInv ? '反演' : '对称')))) + '图形，可继续选择下一批；按 Esc 退出工具。', true);
 }
 
 /* 对称工具的按下处理：先选轴/中心 → 点选多选（再点取消）/ 框选 → 双击空白处生成 */
@@ -2118,6 +2151,12 @@ function handleSymDown(x, y, sx, sy) {
       symAxis = vv;
       flashOn(vv);
       setStatus('已选平移向量 ' + vv.name + '，点选/框选要平移的图形，双击空白处生成。', true);
+    } else if (mode === 'invert') {
+      var ic = findCircleAt(sx, sy);
+      if (!ic) { setStatus('请点击一个圆作为反演圆。', false); return; }
+      symAxis = ic;
+      flashOn(ic);
+      setStatus('已选反演圆 ' + ic.name + '，点选/框选要做反演的图形，双击空白处生成。', true);
     } else {
       var cp = findPointNear(sx, sy);
       if (!cp) { setStatus(mode === 'rotate' ? '请点击一个点作为旋转中心。' : (mode === 'dilate' ? '请点击一个点作为位似中心。' : '请点击一个点作为对称中心。'), false); return; }
@@ -2159,6 +2198,114 @@ function findVectorAt(sx, sy) {
     if (o.hasPoint && o.hasPoint(sx, sy)) return o;
   }
   return null;
+}
+/* 反演工具：找屏幕坐标 (sx, sy) 处的圆（作为反演圆） */
+function findCircleAt(sx, sy) {
+  for (var i = createdIds.length - 1; i >= 0; i--) {
+    var o = board.objects[createdIds[i]];
+    if (!o || (o.elType !== 'circle' && o.elType !== 'circumcircle')) continue;
+    if (o.hasPoint && o.hasPoint(sx, sy)) return o;
+  }
+  return null;
+}
+/* 圆上第三个采样点：tp 绕圆心 C0 旋转 ang 度（真实可序列化的 rotate 点） */
+function makeCircleSamplePoint(tp, C0, ang, name) {
+  var el = makeRotatePoint(tp, C0, ang, name);
+  trackId(el.id);
+  return el;
+}
+/* 反演产物（关于圆 circ，圆心 O，半径 r）：
+ * 线段/射线→端点反演后按原延伸方式重建；直线→过圆心为自身（返回 null 跳过），否则为过圆心的圆；
+ * 圆→过圆心则为直线，否则为三点确定的反演圆（采样点用真实 rotate 点，可序列化）；
+ * 圆弧→端点+弧中点反演后重建三点圆弧；多边形→顶点反演后重建（直边近似） */
+function invertProduct(o, mpt, circ) {
+  var O = circ.center;
+  var et = o.elType, dk = o._defKind;
+  function distO(p) { return Math.hypot(p.X() - O.X(), p.Y() - O.Y()); }
+  if (et === 'segment') {
+    var sp = symBasePoints(o);
+    if (sp.length < 2) return null;
+    return board.create('segment', [mpt(sp[0]), mpt(sp[1])], { name: nextId('s') });
+  }
+  if (et === 'line') {
+    var A = o.point1, B = o.point2;
+    if (!A || !B) return null;
+    var ddx = B.X() - A.X(), ddy = B.Y() - A.Y();
+    var ll = Math.hypot(ddx, ddy) || 1;
+    var distLine = Math.abs((O.X() - A.X()) * ddy - (O.Y() - A.Y()) * ddx) / ll;
+    if (distLine < 1e-9) return null;  // 过圆心：反演是直线自身
+    var q1 = mpt(A), q2 = mpt(B);
+    /* 直线（不过圆心）的反演是过圆心的圆 */
+    var el = board.create('circle', [O, q1, q2], { name: nextId('c') });
+    el._defKind = 'circle3';
+    return el;
+  }
+  if (et === 'circle' || et === 'circumcircle') {
+    var C0 = o.center;
+    if (!C0) return null;
+    var r0 = o.Radius();
+    var passesO = Math.abs(distO(C0) - r0) < 1e-7 * Math.max(1, r0);
+    var on3;
+    if (dk === 'circle3' || et === 'circumcircle') {
+      on3 = (o.parents || []).filter(function (p) {
+        return p && p.elementClass === JXG.OBJECT_CLASS_POINT;
+      }).slice(0, 3);
+      if (on3.length < 3) return null;
+    } else {
+      var tp = (o.parents || [])[1];
+      if (!tp || tp.elementClass !== JXG.OBJECT_CLASS_POINT) {
+        /* 半径式圆：先造一个圆上真实点（自由点），再取旋转 120°/240° 采样 */
+        tp = board.create('point', [C0.X() + r0, C0.Y()], { name: nextId('P') });
+        trackId(tp.id);
+      }
+      on3 = [tp,
+             makeCircleSamplePoint(tp, C0, 120, nextId('P')),
+             makeCircleSamplePoint(tp, C0, 240, nextId('P'))];
+    }
+    var inv3 = on3.map(mpt);
+    if (passesO) {
+      /* 过圆心的圆：反演为不过圆心的直线（第三个反演点共线） */
+      return board.create('line', [inv3[0], inv3[1]], { name: nextId('l') });
+    }
+    var el2 = board.create('circle', [inv3[0], inv3[1], inv3[2]], { name: nextId('c') });
+    el2._defKind = 'circle3';
+    return el2;
+  }
+  if (et === 'arc') {
+    var pA = o.point1, pB = o.point2;
+    if (!pA || !pB) return null;
+    if (dk === 'arc3' && o._arc3pts) {
+      var a3 = o._arc3pts.map(function (pid) { return board.objects[pid]; });
+      if (a3.length === 3 && a3[0] && a3[1] && a3[2])
+        return createArc3(mpt(a3[0]), mpt(a3[1]), mpt(a3[2]), nextId('a'));
+    }
+    if (dk === 'arcchord' && o._arcChordPts) {
+      pA = board.objects[o._arcChordPts[0]];
+      pB = board.objects[o._arcChordPts[1]];
+      if (!pA || !pB) return null;
+    }
+    /* 端点 + 弧中点（数值取点生成真实自由点）反演后重建三点圆弧 */
+    var C1 = o.center;
+    if (!C1) return null;
+    var rr = o.Radius();
+    var a1 = Math.atan2(pA.Y() - C1.Y(), pA.X() - C1.X());
+    var a2 = Math.atan2(pB.Y() - C1.Y(), pB.X() - C1.X());
+    var dd = a2 - a1;
+    while (dd < 0) dd += 2 * Math.PI;
+    var am = a1 + dd / 2;
+    var midP = board.create('point', [C1.X() + rr * Math.cos(am), C1.Y() + rr * Math.sin(am)],
+                            { name: nextId('P') });
+    trackId(midP.id);
+    return createArc3(mpt(pA), mpt(midP), mpt(pB), nextId('a'));
+  }
+  if (et === 'polygon') {
+    var verts = (o.vertices || []).filter(function (v) { return v && v.elementClass === JXG.OBJECT_CLASS_POINT; });
+    if (verts.length < 3) return null;
+    var pel = board.create('polygon', verts.map(mpt), { name: nextId('poly') });
+    tagPolygonBorders(pel);
+    return pel;
+  }
+  return null;  // 椭圆/双曲线/抛物线/五点二次曲线等：反演为更高次曲线，不支持
 }
 /* 过点平行线的隐藏方向点：Q = P + (B - A)，随过点 P 与参照线 AB 联动；
  * 不进对象列表、不序列化，随平行对象重建 */

@@ -1386,6 +1386,7 @@ function stepToFormulaText(s) {
     case 'mirrorpt': return id + ' = 镜像(' + s.of + ', ' + s.axis + ')';
     case 'rotate': return id + ' = 旋转(' + s.of + ', 中心' + s.center + ', ' + ppNum(s.angle) + '°)';
     case 'dilate': return id + ' = 位似(' + s.of + ', 中心' + s.center + ', 比' + ppNum(s.ratio) + ')';
+    case 'invpt': return id + ' = 反演(' + s.of + ', 圆' + s.circle + ')';
     case 'exprpoint':
       /* 用户在定义行输入的原始表达式优先显示（如 Distance(P1,P2)*P1），不显示转换后的 x/y 计算式 */
       if (s.def) return id + ' = ' + s.def;

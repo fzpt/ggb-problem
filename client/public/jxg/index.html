@@ -541,6 +541,9 @@
         <button class="tool" data-mode="dilate" title="位似：先点一个点作为位似中心，输入比例 k（支持数表达式，可为负），再多选图形，双击空白处生成位似图形" aria-label="位似">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17"/><rect x="8.5" y="8.5" width="7" height="7"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
         </button>
+        <button class="tool" data-mode="invert" title="反演：先点一个圆作为反演圆，再多选图形（点/线段/直线/圆/圆弧/多边形），双击空白处生成反演图形；直线与圆互为反演，过圆心的直线/圆反演为自身" aria-label="反演">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><path d="M12 2.2v4.3"/><path d="M10.2 4.9L12 3.1l1.8 1.8"/></svg>
+        </button>
         <span id="dilRatioWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">k<input id="dilRatio" type="text" inputmode="decimal" value="2" title="位似比例（可为负，0 退化为点）；支持数表达式：度量变量（L1、a1…）与函数（如 Distance(A,B)、Length(seg1) 等），非法时回落 2" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;"></span>
         <span id="rotAngleWrap" style="display:none;align-items:center;gap:3px;font-size:12px;color:#57606a;">角度<input id="rotAngle" type="text" inputmode="decimal" value="90" title="旋转角度（度，逆时针为正）；支持数表达式：度量变量（L1、a1…）与函数（如 Distance(A,B)、Length(seg1) 等），非法时回落 90°" style="width:90px;font-size:12px;padding:2px 4px;border:1px solid #d0d7de;border-radius:4px;">°</span>
         <span class="toolsep"></span>
