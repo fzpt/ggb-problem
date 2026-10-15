@@ -111,6 +111,7 @@ function setMode(m) {
   if (keepSel) { try { syncListSelection(); } catch (eKS) {} } else { clearSelection(); }
   document.getElementById('hint').textContent = HINTS[m];
   try { document.getElementById('rotAngleWrap').style.display = (m === 'rotate') ? 'inline-flex' : 'none'; } catch (e) {}
+  try { document.getElementById('dilRatioWrap').style.display = (m === 'dilate') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('arcChordWrap').style.display = (m === 'arcchord') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('ngonWrap').style.display = (m === 'ngon') ? 'inline-flex' : 'none'; } catch (e) {}
   try { document.getElementById('msrExprWrap').style.display = (m === 'mtext') ? 'inline-flex' : 'none'; } catch (e) {}
@@ -583,7 +584,8 @@ function objectToStepRaw(o) {
     return { type: 'circle', id: nm, through3: [oname(o.parents[0]), oname(o.parents[1]), oname(o.parents[2])] };
   if (o.elType === 'circle') {
     if (dk === 'circleRadius' || o._radius !== undefined)
-      return { type: 'circle', id: nm, center: oname(o.parents[0]), radius: o._radius };
+      return { type: 'circle', id: nm, center: oname(o.parents[0]),
+               radius: (typeof o._radius === 'function' ? r4(o._radius()) : o._radius) };
     return { type: 'circle', id: nm, center: oname(o.parents[0]), through: oname(o.parents[1]) };
   }
   if (dk === 'arc3')
@@ -716,7 +718,9 @@ function describeDef(o) {
   if (o._mirrorOf) {
     var mx = o._axisId && board.objects[o._axisId];
     d += '〔关于' + (mx ? (mx.elementClass === JXG.OBJECT_CLASS_POINT ? '点' : '') + mx.name : '?') +
-         (o._mtype === 'rotate' ? '旋转 ' + (o._rotProdAngle || 0) + '°' : (o._mtype === 'central' ? '中心对称' : '轴对称')) + '〕';
+         (o._mtype === 'rotate' ? '旋转 ' + (o._rotProdAngle || 0) + '°'
+          : (o._mtype === 'dilate' ? '位似'
+          : (o._mtype === 'central' ? '中心对称' : '轴对称'))) + '〕';
   }
   if (o._transOf) {
     var tv = o._transVia && board.objects[o._transVia];
@@ -753,6 +757,10 @@ function describeDefRaw(o) {
            '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
   if (o._defKind === 'transpt')
     return '平移点 ' + nm + '：' + oname(o._transOf) + ' 沿向量 ' + oname(o._transVia) +
+           '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
+  if (o._defKind === 'dilate')
+    return '位似点 ' + nm + '：' + oname(o._dilOf) + ' 以 ' + oname(o._dilCenter) +
+           ' 为中心，比 ' + (typeof o._dilRatio === 'string' ? o._dilRatio : ppNum(o._dilRatio)) +
            '（' + o.X().toFixed(2) + ', ' + o.Y().toFixed(2) + '）';
   if (o._defKind === 'mirrorpt') {
     var mo = o._mirrorIds && board.objects[o._mirrorIds[0]];

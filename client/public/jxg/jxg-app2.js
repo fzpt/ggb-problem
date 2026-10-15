@@ -89,6 +89,7 @@ var pendingParPoint = null;    // 平行工具暂存的过点
 var pendingParRef = null;      // 平行工具暂存的参照线（线段/直线/射线）
 var symAxis = null;            // 对称工具暂存的对称轴（线对象）/对称中心（点对象）
 var symPending = [];           // 对称工具多选的待对称对象 id
+var symDilK = null;            // 位似工具当前 { raw, num }（mirrorOneObject 圆半径缩放用）
 var symMarquee = null;         // 对称工具框选中的暂存 {x0,y0,x1,y1,div}
 var lastSymDownTime = 0, lastSymDownX = 0, lastSymDownY = 0;  // 对称工具双击检测
 
@@ -681,6 +682,8 @@ var HINTS = {
   rotate_pick: '已选旋转中心 — 点选要旋转的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   translate:  '当前工具：平移 — 先点击一个向量（或线段，取其方向与长度）作为平移向量。',
   translate_pick: '已选平移向量 — 点选要平移的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
+  dilate:  '当前工具：位似 — 先点击一个点作为位似中心（比例 k 在工具栏右侧输入，支持数表达式，可为负）。',
+  dilate_pick: '已选位似中心 — 点选要位似的图形（可多选，再点取消）；按住拖拽可框选；双击空白处生成；Esc 退出。',
   ngon:    '当前工具：正N边形 — 依次点击两个位置（可复用已有点/交点）；方式选"两点"时先点后一个相邻顶点（逆时针方向），选"中心+顶点"时先点中心、再点一个顶点；边数 N 在工具栏右侧输入。',
   polygon: '当前工具：多边形 — 逐个点击顶点（可复用已有点和交点）；点起点或双击结束。',
   mlen:    '当前工具：长度度量 — 点击一条线段、圆、圆弧或多边形，生成长度变量（L1、L2…，可在表达式文本中引用）。',
@@ -1517,7 +1520,7 @@ function cancelSymMarquee() {
 /* 对称工具的提示行 */
 function updateSymHint() {
   var el = document.getElementById('hint');
-  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate' && mode !== 'translate')) return;
+  if (!el || (mode !== 'axsym' && mode !== 'ctsym' && mode !== 'rotate' && mode !== 'translate' && mode !== 'dilate')) return;
   if (!symAxis) { el.textContent = HINTS[mode]; return; }
   el.textContent = HINTS[mode + '_pick'] + '（已选 ' + symPending.length + ' 个）';
 }
@@ -1873,9 +1876,40 @@ function makeTranslatePoint(p, V, name) {
   el._transOf = p.id; el._transVia = V.id;
   return el;
 }
+/* 位似工具当前比例（工具栏输入框）：纯数字直接用，否则按数表达式求值。
+ * 返回 { raw, num }：raw 为原始输入（序列化保留，表达式随度量动态求值），
+ * num 为当前数值（非法时回落 2）。 */
+function currentDilRatio() {
+  try {
+    var raw = String(document.getElementById('dilRatio').value).trim();
+    if (!raw) return { raw: '2', num: 2 };
+    if (/^-?\d*\.?\d+$/.test(raw)) {
+      var n = parseFloat(raw);
+      if (isFinite(n)) return { raw: n, num: n };
+    }
+    var v = evalMsrExpr(raw);
+    if (isFinite(v)) return { raw: raw, num: v };
+  } catch (e) {}
+  return { raw: '2', num: 2 };
+}
+/* 生成点 p 以 center 为中心、按比例 k 联动位似的点（固定从动点，k 可为表达式随度量联动） */
+function makeDilatePoint(orig, center, kRaw, name) {
+  var kFn = (typeof kRaw === 'number')
+    ? function () { return kRaw; }
+    : function () { try { return evalMsrExpr(String(kRaw)); } catch (e) { return NaN; } };
+  var el = board.create('point', [
+    function () { var k = kFn(); return center.X() + (orig.X() - center.X()) * k; },
+    function () { var k = kFn(); return center.Y() + (orig.Y() - center.Y()) * k; }
+  ], { name: name, fixed: true });
+  el._defKind = 'dilate';
+  applyDrivenGray(el);
+  el._depIds = [orig.id, center.id];
+  el._dilOf = orig.id; el._dilCenter = center.id; el._dilRatio = kRaw;
+  return el;
+}
 
-/* 把单个对象 o 做镜像/旋转。mpt 为"取某点的像点（含去重）"的函数；
- * mtype: 'axial' | 'central' | 'rotate'。返回是否成功。 */
+/* 把单个对象 o 做镜像/旋转/平移/位似。mpt 为"取某点的像点（含去重）"的函数；
+ * mtype: 'axial' | 'central' | 'rotate' | 'translate' | 'dilate'。返回是否成功。 */
 function mirrorOneObject(o, mpt, mtype, axis, angle) {
   if (!o || !board.objects[o.id]) return false;
   if (o.elementClass === JXG.OBJECT_CLASS_POINT) { mpt(o); return true; }
@@ -1904,7 +1938,19 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
       el = board.create('line', [q1, q2], { name: nextId('l') });
     }
   } else if (et === 'circle' || et === 'circumcircle') {
-    if (dk === 'circleRadius') {
+    if (dk === 'circleRadius' && mtype === 'dilate' && symDilK) {
+      /* 位似：半径随 |k| 缩放；k 为表达式时圆动态跟随（快照仍存当前数值） */
+      var r0d = (typeof o._radius === 'function') ? o._radius() : Number(o._radius);
+      var kfd = (typeof symDilK.raw === 'number')
+        ? function () { return symDilK.raw; }
+        : function () { try { return evalMsrExpr(String(symDilK.raw)); } catch (e) { return NaN; } };
+      el = board.create('circle', [mpt(pts[0]), function () {
+        var k = kfd();
+        return Math.abs((isFinite(k) ? k : 1) * r0d);
+      }], { name: nextId('c') });
+      el._defKind = 'circleRadius';
+      el._radius = Math.abs((isFinite(symDilK.num) ? symDilK.num : 1) * r0d);
+    } else if (dk === 'circleRadius') {
       el = board.create('circle', [mpt(pts[0]), o._radius], { name: nextId('c') });
       el._defKind = 'circleRadius';
       el._radius = o._radius;
@@ -1927,8 +1973,9 @@ function mirrorOneObject(o, mpt, mtype, axis, angle) {
       el = makeArcChord(cA, cB, fnA, rawA, nextId('a'));
     } else {
       if (pts.length < 3) return false;
-      /* 二点圆弧：轴/中心对称会反转方向，交换起终点保证弧段集合正确；旋转/平移保持方向 */
-      if (mtype === 'rotate' || mtype === 'translate')
+      /* 二点圆弧：轴/中心对称会反转方向，交换起终点保证弧段集合正确；
+       * 旋转/平移保持方向；位似 k≥0 保持方向，k<0 反转 */
+      if (mtype === 'rotate' || mtype === 'translate' || (mtype === 'dilate' && angle >= 0))
         el = board.create('arc', [mpt(pts[0]), mpt(pts[1]), mpt(pts[2])], { name: nextId('a') });
       else
         el = board.create('arc', [mpt(pts[0]), mpt(pts[2]), mpt(pts[1])], { name: nextId('a') });
@@ -1994,8 +2041,11 @@ function doSymmetry() {
   var axis = symAxis;
   var isRot = (mode === 'rotate');
   var isTrans = (mode === 'translate');
-  var mtype = isTrans ? 'translate' : (isRot ? 'rotate' : ((mode === 'ctsym') ? 'central' : 'axial'));
-  var angle = isRot ? currentRotAngle() : 0;
+  var isDil = (mode === 'dilate');
+  var mtype = isTrans ? 'translate' : (isRot ? 'rotate' : (isDil ? 'dilate' : ((mode === 'ctsym') ? 'central' : 'axial')));
+  var dilK = isDil ? currentDilRatio() : null;
+  symDilK = dilK;
+  var angle = isRot ? currentRotAngle() : (isDil && dilK ? dilK.num : 0);
   var count = 0, ptMap = {};
   function mpt(p) {
     if (ptMap[p.id]) return ptMap[p.id];
@@ -2004,7 +2054,8 @@ function doSymmetry() {
     if (p.id === axis.id) { ptMap[p.id] = axis; return axis; }
     var mp = isRot ? makeRotatePoint(p, axis, angle, nextId('P'))
                    : isTrans ? makeTranslatePoint(p, axis, nextId('P'))
-                             : makeMirrorPoint(p, axis, mtype, nextId('P'));
+                             : isDil ? makeDilatePoint(p, axis, dilK.raw, nextId('P'))
+                                     : makeMirrorPoint(p, axis, mtype, nextId('P'));
     trackId(mp.id);
     ptMap[p.id] = mp;
     return mp;
@@ -2025,7 +2076,7 @@ function doSymmetry() {
   if (board.objects[axis.id] === axis) flashOn(axis);
   refreshObjectList();
   updateSymHint();
-  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : (isTrans ? '平移' : '对称')) + '图形，可继续选择下一批；按 Esc 退出工具。', true);
+  setStatus('已生成 ' + count + ' 个' + (isRot ? '旋转' : (isTrans ? '平移' : (isDil ? '位似' : '对称'))) + '图形，可继续选择下一批；按 Esc 退出工具。', true);
 }
 
 /* 对称工具的按下处理：先选轴/中心 → 点选多选（再点取消）/ 框选 → 双击空白处生成 */
@@ -2050,12 +2101,14 @@ function handleSymDown(x, y, sx, sy) {
       setStatus('已选平移向量 ' + vv.name + '，点选/框选要平移的图形，双击空白处生成。', true);
     } else {
       var cp = findPointNear(sx, sy);
-      if (!cp) { setStatus(mode === 'rotate' ? '请点击一个点作为旋转中心。' : '请点击一个点作为对称中心。', false); return; }
+      if (!cp) { setStatus(mode === 'rotate' ? '请点击一个点作为旋转中心。' : (mode === 'dilate' ? '请点击一个点作为位似中心。' : '请点击一个点作为对称中心。'), false); return; }
       symAxis = cp;
       flashOn(cp);
       setStatus(mode === 'rotate'
         ? '已选旋转中心 ' + cp.name + '，点选/框选要旋转的图形，双击空白处生成。'
-        : '已选对称中心 ' + cp.name + '，点选/框选要对称的图形，双击空白处生成镜像。', true);
+        : (mode === 'dilate'
+          ? '已选位似中心 ' + cp.name + '，点选/框选要位似的图形，双击空白处生成。'
+          : '已选对称中心 ' + cp.name + '，点选/框选要对称的图形，双击空白处生成镜像。'), true);
     }
     updateSymHint();
     return;

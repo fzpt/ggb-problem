@@ -209,7 +209,7 @@ board.on('down', function (e) {
   }
 
   /* 对称/旋转工具：先选对称轴/对称中心/旋转中心，再多选图形，双击空白处生成 */
-  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate' || mode === 'translate') {
+  if (mode === 'axsym' || mode === 'ctsym' || mode === 'rotate' || mode === 'translate' || mode === 'dilate') {
     handleSymDown(x, y, sx, sy);
     return;
   }
@@ -1731,17 +1731,30 @@ function createRegularPolygon(opts) {
         case 'dilate': {
           if (s.of === undefined || s.center === undefined || s.ratio === undefined)
             throw new Error('第 ' + (i + 1) + ' 步：dilate 需要 of（原点）, center（位似中心）, ratio（比例）');
+          if (typeof s.ratio !== 'number' && typeof s.ratio !== 'string')
+            throw new Error('第 ' + (i + 1) + ' 步：dilate 的 ratio 需要数值或数表达式字符串（位似比例）');
           var dO = resolveRef(s.of, registry, i), dC = resolveRef(s.center, registry, i);
-          var dR = Number(s.ratio);
-          if (!isFinite(dR)) throw new Error('第 ' + (i + 1) + ' 步：dilate 的 ratio 必须是数值');
+          /* 表达式比例：每次更新动态求值（引用度量变量时随度量联动） */
+          var kFnD = (typeof s.ratio === 'number')
+            ? function () { return s.ratio; }
+            : function () { try { return evalMsrExpr(String(s.ratio)); } catch (e) { return NaN; } };
           el = board.create('point', [
-            function () { return dC.X() + (dO.X() - dC.X()) * dR; },
-            function () { return dC.Y() + (dO.Y() - dC.Y()) * dR; }
+            function () { var k = kFnD(); return dC.X() + (dO.X() - dC.X()) * k; },
+            function () { var k = kFnD(); return dC.Y() + (dO.Y() - dC.Y()) * k; }
           ], { name: id, fixed: true });
           el._defKind = 'dilate';
           applyDrivenGray(el);
           el._depIds = [dO.id, dC.id];
-          el._dilOf = dO.id; el._dilCenter = dC.id; el._dilRatio = dR;
+          /* 从表达式中提取已注册对象 id，作为闭包依赖（防循环约束检测/级联删除用） */
+          if (typeof s.ratio === 'string') {
+            var _dRefs = [];
+            String(s.ratio).replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (m2) {
+              if (registry[m2] && registry[m2].id && _dRefs.indexOf(registry[m2].id) < 0) _dRefs.push(registry[m2].id);
+              return m2;
+            });
+            _dRefs.forEach(function (rid) { if (el._depIds.indexOf(rid) < 0) el._depIds.push(rid); });
+          }
+          el._dilOf = dO.id; el._dilCenter = dC.id; el._dilRatio = s.ratio;
           break;
         }
         case 'exprpoint': {
