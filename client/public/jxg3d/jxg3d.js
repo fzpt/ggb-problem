@@ -25,12 +25,14 @@ function initBoard() {
   board = JXG.JSXGraph.initBoard('board', {
     boundingbox: [-8, 8, 8, -8],
     axis: false, grid: false, showCopyright: false, showNavigation: false,
+    keepAspectRatio: true,   // 容器不是正方形时保持单位等比，否则整体被拉扁
     pan: { enabled: false },
     zoom: { enabled: false }
   });
   view = board.create('view3d', [
-    [-7.5, -6],                     // 2D 左下角
-    [15, 12],                       // 2D 宽高
+    [-6.5, -6.5],                   // 2D 左下角（板 16×16 居中）
+    [13, 13],                       // 2D 宽高：必须与 x/y 轴范围等比（16:16=1:1），
+                                    // 否则平行投影后屏幕 x/y 缩放不一致，球会被拉成椭球
     [[-8, 8], [-8, 8], [-2, 10]]    // x/y/z 三轴范围
   ], {
       xPlaneRear: { visible: false }, yPlaneRear: { visible: false },
